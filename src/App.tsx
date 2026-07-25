@@ -48,7 +48,57 @@ const INITIAL_PRODUCTS: Product[] = [
 ];
 
 const LEGACY_DEMO_PRODUCT_IDS = new Set(INITIAL_PRODUCTS.map(product => product.id));
-const DEFAULT_PRODUCTS = defaultProductsData as Product[];
+
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+const getTodayDateOnly = () => {
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+};
+
+const parseDateOnly = (value?: string) => {
+  if (!value) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+};
+
+const formatDateOnly = (date: Date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const getProductImportYear = (product: Product) => {
+  const timestampMatch = product.id.match(/-(\d{13})-/);
+  if (!timestampMatch) return null;
+
+  const timestampDate = new Date(Number(timestampMatch[1]));
+  const year = timestampDate.getFullYear();
+  return Number.isFinite(year) ? year : null;
+};
+
+const normalizeOfferDateYear = (value: string | undefined, product: Product) => {
+  const date = parseDateOnly(value);
+  if (!date) return value;
+
+  const importYear = getProductImportYear(product);
+  if (!importYear || date.getFullYear() >= importYear) return value;
+
+  return formatDateOnly(new Date(importYear, date.getMonth(), date.getDate()));
+};
+
+const normalizeProductOfferDates = (product: Product): Product => ({
+  ...product,
+  startDate: normalizeOfferDateYear(product.startDate, product),
+  endDate: normalizeOfferDateYear(product.endDate, product)
+});
+
+const normalizeProductsOfferDates = (products: Product[]) =>
+  products.map(normalizeProductOfferDates);
+
+const DEFAULT_PRODUCTS = normalizeProductsOfferDates(defaultProductsData as Product[]);
 
 const loadSavedProducts = () => {
   const saved = localStorage.getItem('products_list');
@@ -67,7 +117,7 @@ const loadSavedProducts = () => {
       return DEFAULT_PRODUCTS;
     }
 
-    return savedProducts;
+    return normalizeProductsOfferDates(savedProducts);
   } catch {
     localStorage.removeItem('products_list');
     return DEFAULT_PRODUCTS;
@@ -87,20 +137,6 @@ const normalizeSearchText = (value: string) =>
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-
-const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
-const getTodayDateOnly = () => {
-  const today = new Date();
-  return new Date(today.getFullYear(), today.getMonth(), today.getDate());
-};
-
-const parseDateOnly = (value?: string) => {
-  if (!value) return null;
-  const [year, month, day] = value.split('-').map(Number);
-  if (!year || !month || !day) return null;
-  return new Date(year, month - 1, day);
-};
 
 const isDateExpired = (value?: string) => {
   const endDate = parseDateOnly(value);
