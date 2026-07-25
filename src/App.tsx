@@ -1314,6 +1314,7 @@ export default function App() {
           <tr>
             <th>Item</th>
             <th>Produto encontrado</th>
+            <th>UND</th>
             <th>Cidade</th>
             <th>Melhor valor</th>
             <th>Validade da promocao</th>
@@ -1322,25 +1323,26 @@ export default function App() {
         <tbody>
           ${bestByMarket.map(({ market, items, subtotal }) => `
             <tr class="market-row">
-              <td colspan="5">${market}</td>
+              <td colspan="6">${market}</td>
             </tr>
             ${items.map(({ group, product }) => `
             <tr>
               <td>${group}</td>
               <td>${product.name}</td>
+              <td>${product.unit}</td>
               <td>${product.city}</td>
               <td>${formatCurrency(product.price)}</td>
               <td>${formatDate(product.endDate)}</td>
             </tr>
             `).join('')}
             <tr class="subtotal-row">
-              <td colspan="3">Subtotal ${market}</td>
+              <td colspan="4">Subtotal ${market}</td>
               <td>${formatCurrency(subtotal)}</td>
               <td>${items.length} item(ns)</td>
             </tr>
           `).join('')}
           <tr class="total-row">
-            <td colspan="3">Total geral</td>
+            <td colspan="4">Total geral</td>
             <td>${formatCurrency(grandTotal)}</td>
             <td>${bestByGroup.length} item(ns)</td>
           </tr>
@@ -1368,8 +1370,9 @@ export default function App() {
             table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
             th, td { border: 1px solid #d1d5db; padding: 6px 7px; font-size: 10px; text-align: left; vertical-align: top; }
             th { background: #f3f4f6; font-weight: 700; }
-            td:nth-child(4), th:nth-child(4) { text-align: right; white-space: nowrap; }
-            td:nth-child(5), th:nth-child(5) { white-space: nowrap; }
+            td:nth-child(3), th:nth-child(3) { white-space: nowrap; }
+            td:nth-child(5), th:nth-child(5) { text-align: right; white-space: nowrap; }
+            td:nth-child(6), th:nth-child(6) { white-space: nowrap; }
             .market-row td { background: #e5e7eb; font-weight: 700; font-size: 12px; color: #111827; }
             .subtotal-row td { background: #f9fafb; font-weight: 700; }
             .total-row td { background: #111827; color: white; font-weight: 700; font-size: 11px; }
