@@ -88,6 +88,31 @@ const normalizeSearchText = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+const MS_PER_DAY = 1000 * 60 * 60 * 24;
+
+const getTodayDateOnly = () => {
+  const today = new Date();
+  return new Date(today.getFullYear(), today.getMonth(), today.getDate());
+};
+
+const parseDateOnly = (value?: string) => {
+  if (!value) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || !month || !day) return null;
+  return new Date(year, month - 1, day);
+};
+
+const isDateExpired = (value?: string) => {
+  const endDate = parseDateOnly(value);
+  return endDate ? endDate < getTodayDateOnly() : false;
+};
+
+const getDaysUntilDate = (value?: string) => {
+  const endDate = parseDateOnly(value);
+  if (!endDate) return null;
+  return Math.round((endDate.getTime() - getTodayDateOnly().getTime()) / MS_PER_DAY);
+};
+
 const getSearchTokens = (value: string) =>
   normalizeSearchText(value)
     .split(' ')
@@ -408,21 +433,21 @@ export default function App() {
   // Validate dates (checking if expired based on current date)
   const getValidityStatus = (endDateStr?: string) => {
     if (!endDateStr) return { label: 'Validade não informada', type: 'info' };
-    
-    const today = new Date(); // Current local time
-    const endDate = new Date(endDateStr);
-    
-    // Reset hours for accurate day comparison
-    today.setHours(0,0,0,0);
-    endDate.setHours(0,0,0,0);
 
-    if (endDate < today) {
+    if (isDateExpired(endDateStr)) {
       return { label: 'Oferta Expirada', type: 'expired' };
     }
+
+    const diffDays = getDaysUntilDate(endDateStr) ?? 0;
     
-    const diffTime = endDate.getTime() - today.getTime();
-    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-    
+    if (diffDays === 0) {
+      return { label: 'Expira hoje', type: 'warning' };
+    }
+
+    if (diffDays === 1) {
+      return { label: 'Expira amanhã', type: 'warning' };
+    }
+
     if (diffDays <= 2) {
       return { label: `Expira em ${diffDays} dia(s)`, type: 'warning' };
     }
@@ -961,11 +986,7 @@ export default function App() {
     // Filter out expired items first for validity comparison
     const activeProducts = marketProducts.filter(p => {
       if (!p.endDate) return true;
-      const today = new Date();
-      today.setHours(0,0,0,0);
-      const endDate = new Date(p.endDate);
-      endDate.setHours(0,0,0,0);
-      return endDate >= today;
+      return !isDateExpired(p.endDate);
     });
 
     const targetList = hideExpired ? activeProducts : (activeProducts.length > 0 ? activeProducts : marketProducts);
@@ -1092,11 +1113,7 @@ export default function App() {
   // Filter Catalog
   const filteredProducts = products.filter(p => {
     if (hideExpired && p.endDate) {
-      const today = new Date();
-      today.setHours(0,0,0,0);
-      const endDate = new Date(p.endDate);
-      endDate.setHours(0,0,0,0);
-      if (endDate < today) return false;
+      if (isDateExpired(p.endDate)) return false;
     }
     const matchesSearch = !searchTerm.trim() || getProductMatchScore(searchTerm, p) >= 0.45;
     const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
