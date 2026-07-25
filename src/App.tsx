@@ -1257,6 +1257,105 @@ export default function App() {
     reportWindow.document.close();
   };
 
+  const exportBestPricesPdf = () => {
+    const sourceProducts = filteredProducts;
+
+    if (sourceProducts.length === 0) {
+      alert('Nenhuma oferta encontrada para gerar a lista de melhores preços.');
+      return;
+    }
+
+    const formatDate = (value?: string) => {
+      if (!value) return 'Sem validade';
+      const [year, month, day] = value.split('-');
+      return year && month && day ? `${day}/${month}/${year}` : value;
+    };
+
+    const bestByGroup = Array.from(
+      sourceProducts.reduce((acc, product) => {
+        const group = getProductGroup(product.name);
+        const currentBest = acc.get(group);
+        if (
+          !currentBest ||
+          product.price < currentBest.price ||
+          (product.price === currentBest.price && product.market.localeCompare(currentBest.market, 'pt-BR') < 0)
+        ) {
+          acc.set(group, product);
+        }
+        return acc;
+      }, new Map<string, Product>())
+    )
+      .map(([group, product]) => ({ group, product }))
+      .sort((a, b) => a.group.localeCompare(b.group, 'pt-BR'));
+
+    const rowsHtml = `
+      <table>
+        <thead>
+          <tr>
+            <th>Item</th>
+            <th>Produto encontrado</th>
+            <th>Mercado</th>
+            <th>Cidade</th>
+            <th>Melhor valor</th>
+            <th>Validade da promocao</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${bestByGroup.map(({ group, product }) => `
+            <tr>
+              <td>${group}</td>
+              <td>${product.name}</td>
+              <td>${product.market}</td>
+              <td>${product.city}</td>
+              <td>${formatCurrency(product.price)}</td>
+              <td>${formatDate(product.endDate)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    `;
+
+    const reportWindow = window.open('', '_blank');
+    if (!reportWindow) {
+      alert('O navegador bloqueou a janela da lista. Permita pop-ups para este site.');
+      return;
+    }
+
+    reportWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>Melhores Precos por Item - Radar de Precos</title>
+          <style>
+            @page { size: A4; margin: 12mm; }
+            body { font-family: Arial, sans-serif; color: #111827; }
+            h1 { font-size: 20px; margin: 0 0 6px; }
+            .meta { font-size: 11px; color: #4b5563; margin-bottom: 16px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+            th, td { border: 1px solid #d1d5db; padding: 6px 7px; font-size: 10px; text-align: left; vertical-align: top; }
+            th { background: #f3f4f6; font-weight: 700; }
+            td:nth-child(5), th:nth-child(5) { text-align: right; white-space: nowrap; }
+            td:nth-child(6), th:nth-child(6) { white-space: nowrap; }
+          </style>
+        </head>
+        <body>
+          <h1>Melhores Precos por Item</h1>
+          <div class="meta">
+            Gerado em ${new Date().toLocaleDateString('pt-BR')} - ${bestByGroup.length} itens agrupados
+          </div>
+          ${rowsHtml}
+          <script>
+            window.onload = () => {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    reportWindow.document.close();
+  };
+
   return (
     <div className="app-container">
       {/* Header */}
@@ -1774,6 +1873,14 @@ export default function App() {
               disabled={products.length === 0}
             >
               <FileTextIcon size={16} /> Gerar PDF
+            </button>
+
+            <button
+              className="btn-secondary"
+              onClick={exportBestPricesPdf}
+              disabled={products.length === 0}
+            >
+              <TrendingDown size={16} /> Melhores Preços
             </button>
 
             {products.length > 0 && (
