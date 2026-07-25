@@ -1,0 +1,35 @@
+{
+  "name": "app-pre-os",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "bot": "node whatsapp-bot.js",
+    "bot:reset": "node whatsapp-bot.js --reset-session",
+    "build": "tsc -b && vite build",
+    "lint": "oxlint",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.5",
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "lucide-react": "^1.24.0",
+    "pdfjs-dist": "^6.1.200",
+    "qrcode-terminal": "^0.12.0",
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "whatsapp-web.js": "github:pedroslopez/whatsapp-web.js"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "oxlint": "^1.71.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1"
+  }
+}
