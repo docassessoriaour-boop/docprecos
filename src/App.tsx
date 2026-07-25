@@ -46,6 +46,30 @@ const INITIAL_PRODUCTS: Product[] = [
   { id: '20', name: 'Detergente Ipê Neutro 500ml', price: 1.99, category: 'Limpeza', unit: '500ml', market: 'Compre Bem', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
 ];
 
+const LEGACY_DEMO_PRODUCT_IDS = new Set(INITIAL_PRODUCTS.map(product => product.id));
+
+const loadSavedProducts = () => {
+  const saved = localStorage.getItem('products_list');
+  if (!saved) return [];
+
+  try {
+    const savedProducts = JSON.parse(saved) as Product[];
+    const containsOnlyLegacyDemo =
+      savedProducts.length > 0 &&
+      savedProducts.every(product => LEGACY_DEMO_PRODUCT_IDS.has(product.id));
+
+    if (containsOnlyLegacyDemo) {
+      localStorage.removeItem('products_list');
+      return [];
+    }
+
+    return savedProducts;
+  } catch {
+    localStorage.removeItem('products_list');
+    return [];
+  }
+};
+
 const SEARCH_STOP_WORDS = new Set([
   'de', 'da', 'do', 'das', 'dos', 'e', 'com', 'sem', 'para', 'por', 'tipo',
   'un', 'unidade', 'kg', 'g', 'l', 'ml', 'litro', 'litros', 'pacote', 'pct'
@@ -207,10 +231,7 @@ const getProductGroup = (productName: string) => {
 };
 
 export default function App() {
-  const [products, setProducts] = useState<Product[]>(() => {
-    const saved = localStorage.getItem('products_list');
-    return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
-  });
+  const [products, setProducts] = useState<Product[]>(loadSavedProducts);
   
   const [apiKey, setApiKey] = useState<string>(() => {
     return localStorage.getItem('gemini_api_key') || '';
