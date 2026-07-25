@@ -21,6 +21,7 @@ import {
 import type { Product, ShoppingItem, MarketComparison, OptimizedItem } from './types';
 import { extractTextFromPDF } from './utils/pdfParser';
 import { extractOffersWithGemini, extractOffersFallback, generateDemoOffers, fetchHtmlFromUrl, extractOffersFromImage, extractOffersFromPDFFile, searchOffersOnline, parseInformalShoppingList } from './utils/geminiExtractor';
+import defaultProductsData from './data/defaultProducts.json';
 import './App.css';
 
 // Initial Mock Data configured for Ourinhos
@@ -47,26 +48,29 @@ const INITIAL_PRODUCTS: Product[] = [
 ];
 
 const LEGACY_DEMO_PRODUCT_IDS = new Set(INITIAL_PRODUCTS.map(product => product.id));
+const DEFAULT_PRODUCTS = defaultProductsData as Product[];
 
 const loadSavedProducts = () => {
   const saved = localStorage.getItem('products_list');
-  if (!saved) return [];
+  if (!saved) return DEFAULT_PRODUCTS;
 
   try {
     const savedProducts = JSON.parse(saved) as Product[];
+    if (savedProducts.length === 0) return DEFAULT_PRODUCTS;
+
     const containsOnlyLegacyDemo =
       savedProducts.length > 0 &&
       savedProducts.every(product => LEGACY_DEMO_PRODUCT_IDS.has(product.id));
 
     if (containsOnlyLegacyDemo) {
       localStorage.removeItem('products_list');
-      return [];
+      return DEFAULT_PRODUCTS;
     }
 
     return savedProducts;
   } catch {
     localStorage.removeItem('products_list');
-    return [];
+    return DEFAULT_PRODUCTS;
   }
 };
 
