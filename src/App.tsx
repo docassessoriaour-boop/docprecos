@@ -103,8 +103,41 @@ const normalizeProductOfferDates = (product: Product): Product => ({
 const normalizeProductsOfferDates = (products: Product[]) =>
   products.map(normalizeProductOfferDates);
 
+const normalizeDuplicateKeyText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const formatProductPriceForKey = (price: number) =>
+  Number.isFinite(price) ? price.toFixed(2) : String(price);
+
+const getProductDuplicateKey = (product: Product) => [
+  normalizeDuplicateKeyText(product.city),
+  normalizeDuplicateKeyText(product.market),
+  normalizeDuplicateKeyText(product.name),
+  formatProductPriceForKey(product.price),
+  product.endDate || ''
+].join('|');
+
+const removeDuplicateProducts = (products: Product[]) => {
+  const seenKeys = new Set<string>();
+
+  return products.filter(product => {
+    const key = getProductDuplicateKey(product);
+    if (seenKeys.has(key)) return false;
+    seenKeys.add(key);
+    return true;
+  });
+};
+
 const removeExpiredProducts = (products: Product[]) =>
-  normalizeProductsOfferDates(products).filter(product => !isDateExpired(product.endDate));
+  removeDuplicateProducts(
+    normalizeProductsOfferDates(products).filter(product => !isDateExpired(product.endDate))
+  );
 
 const DEFAULT_PRODUCTS = removeExpiredProducts(defaultProductsData as Product[]);
 
@@ -403,7 +436,7 @@ export default function App() {
         let addedOffers = 0;
         if (incomingOffers.length > 0) {
           setProducts(prev => {
-            const existingKeys = new Set(prev.map(p => `${normalizeSearchText(p.market)}|${normalizeSearchText(p.name)}|${p.price}|${p.endDate || ''}`));
+            const existingKeys = new Set(removeExpiredProducts(prev).map(getProductDuplicateKey));
             const nextProducts = [...prev];
 
             incomingOffers.forEach(offer => {
@@ -411,7 +444,7 @@ export default function App() {
               const normalizedOffer = normalizeProductOfferDates(offer);
               if (isDateExpired(normalizedOffer.endDate)) return;
 
-              const key = `${normalizeSearchText(normalizedOffer.market)}|${normalizeSearchText(normalizedOffer.name)}|${normalizedOffer.price}|${normalizedOffer.endDate || ''}`;
+              const key = getProductDuplicateKey(normalizedOffer);
               importedWhatsAppIds.current.add(offer.id);
 
               if (!existingKeys.has(key)) {
@@ -724,9 +757,9 @@ export default function App() {
       
       if (extractedProducts.length > 0) {
         setProducts(prev => {
-          const existingKeys = new Set(prev.map(p => `${normalizeSearchText(p.market)}|${normalizeSearchText(p.name)}|${p.price}|${p.endDate || ''}`));
+          const existingKeys = new Set(removeExpiredProducts(prev).map(getProductDuplicateKey));
           const newProducts = extractedProducts.filter(p => {
-            const key = `${normalizeSearchText(p.market)}|${normalizeSearchText(p.name)}|${p.price}|${p.endDate || ''}`;
+            const key = getProductDuplicateKey(p);
             if (existingKeys.has(key)) return false;
             existingKeys.add(key);
             return true;
