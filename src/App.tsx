@@ -63,6 +63,11 @@ const parseDateOnly = (value?: string) => {
   return new Date(year, month - 1, day);
 };
 
+const isDateExpired = (value?: string) => {
+  const endDate = parseDateOnly(value);
+  return endDate ? endDate < getTodayDateOnly() : false;
+};
+
 const formatDateOnly = (date: Date) => {
   const year = date.getFullYear();
   const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -98,7 +103,10 @@ const normalizeProductOfferDates = (product: Product): Product => ({
 const normalizeProductsOfferDates = (products: Product[]) =>
   products.map(normalizeProductOfferDates);
 
-const DEFAULT_PRODUCTS = normalizeProductsOfferDates(defaultProductsData as Product[]);
+const removeExpiredProducts = (products: Product[]) =>
+  normalizeProductsOfferDates(products).filter(product => !isDateExpired(product.endDate));
+
+const DEFAULT_PRODUCTS = removeExpiredProducts(defaultProductsData as Product[]);
 
 const loadSavedProducts = () => {
   const saved = localStorage.getItem('products_list');
@@ -117,7 +125,7 @@ const loadSavedProducts = () => {
       return DEFAULT_PRODUCTS;
     }
 
-    return normalizeProductsOfferDates(savedProducts);
+    return removeExpiredProducts(savedProducts);
   } catch {
     localStorage.removeItem('products_list');
     return DEFAULT_PRODUCTS;
@@ -137,11 +145,6 @@ const normalizeSearchText = (value: string) =>
     .replace(/[^a-z0-9\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
-
-const isDateExpired = (value?: string) => {
-  const endDate = parseDateOnly(value);
-  return endDate ? endDate < getTodayDateOnly() : false;
-};
 
 const getDaysUntilDate = (value?: string) => {
   const endDate = parseDateOnly(value);
@@ -324,7 +327,6 @@ export default function App() {
   const [selectedProductGroup, setSelectedProductGroup] = useState('Todos');
   const [selectedMarket, setSelectedMarket] = useState('Todos');
   const [selectedCity, setSelectedCity] = useState('Ourinhos');
-  const [hideExpired, setHideExpired] = useState(true);
   const [onlineSearchQuery, setOnlineSearchQuery] = useState('');
   const [whatsAppText, setWhatsAppText] = useState('');
   
@@ -347,7 +349,24 @@ export default function App() {
   
   // Save data to localStorage
   useEffect(() => {
-    localStorage.setItem('products_list', JSON.stringify(products));
+    const activeProducts = removeExpiredProducts(products);
+    if (activeProducts.length !== products.length) {
+      setProducts(activeProducts);
+      return;
+    }
+
+    localStorage.setItem('products_list', JSON.stringify(activeProducts));
+  }, [products]);
+
+  useEffect(() => {
+    const activeOfferIds = new Set(products.map(product => product.id));
+    setSelectedOfferIds(prev => {
+      const next = Object.fromEntries(
+        Object.entries(prev).filter(([, offerId]) => activeOfferIds.has(offerId))
+      );
+
+      return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+    });
   }, [products]);
 
   useEffect(() => {
@@ -389,18 +408,20 @@ export default function App() {
 
             incomingOffers.forEach(offer => {
               if (importedWhatsAppIds.current.has(offer.id)) return;
+              const normalizedOffer = normalizeProductOfferDates(offer);
+              if (isDateExpired(normalizedOffer.endDate)) return;
 
-              const key = `${normalizeSearchText(offer.market)}|${normalizeSearchText(offer.name)}|${offer.price}|${offer.endDate || ''}`;
+              const key = `${normalizeSearchText(normalizedOffer.market)}|${normalizeSearchText(normalizedOffer.name)}|${normalizedOffer.price}|${normalizedOffer.endDate || ''}`;
               importedWhatsAppIds.current.add(offer.id);
 
               if (!existingKeys.has(key)) {
                 existingKeys.add(key);
-                nextProducts.push(offer);
+                nextProducts.push(normalizedOffer);
                 addedOffers += 1;
               }
             });
 
-            return nextProducts;
+            return removeExpiredProducts(nextProducts);
           });
         }
 
@@ -505,15 +526,15 @@ export default function App() {
       extractedProducts = extractOffersFallback(text, marketName, cityInput);
     }
 
+    extractedProducts = removeExpiredProducts(extractedProducts.map(p => ({
+      ...p,
+      startDate: manualStartDate || p.startDate,
+      endDate: manualEndDate || p.endDate
+    })));
+
     // Apply manual date overrides if provided
     if (extractedProducts.length > 0) {
-      extractedProducts = extractedProducts.map(p => ({
-        ...p,
-        startDate: manualStartDate || p.startDate,
-        endDate: manualEndDate || p.endDate
-      }));
-
-      setProducts(prev => [...prev, ...extractedProducts]);
+      setProducts(prev => removeExpiredProducts([...prev, ...extractedProducts]));
       setUploadStatus(`Sucesso! ${extractedProducts.length} ofertas importadas de ${marketName} (${cityInput}).`);
       
       // Reset fields
@@ -523,7 +544,7 @@ export default function App() {
       setManualStartDate('');
       setManualEndDate('');
     } else {
-      setUploadStatus('Nenhum produto pôde ser extraído. Verifique o conteúdo fornecido.');
+      setUploadStatus('Nenhuma oferta válida foi importada. Ofertas vencidas são excluídas automaticamente.');
     }
   };
 
@@ -562,12 +583,12 @@ export default function App() {
         }
 
         if (extractedProducts.length > 0) {
-          extractedProducts = extractedProducts.map(p => ({
+          extractedProducts = removeExpiredProducts(extractedProducts.map(p => ({
             ...p,
             startDate: manualStartDate || p.startDate,
             endDate: manualEndDate || p.endDate
-          }));
-          setProducts(prev => [...prev, ...extractedProducts]);
+          })));
+          setProducts(prev => removeExpiredProducts([...prev, ...extractedProducts]));
           totalImported += extractedProducts.length;
         }
       }
@@ -657,17 +678,20 @@ export default function App() {
           let extractedProducts = await extractOffersFromImage(file, apiKey, marketName, cityInput);
           
           if (extractedProducts.length > 0) {
-            extractedProducts = extractedProducts.map(p => ({
+            extractedProducts = removeExpiredProducts(extractedProducts.map(p => ({
               ...p,
               startDate: manualStartDate || p.startDate,
               endDate: manualEndDate || p.endDate
-            }));
+            })));
 
-            setProducts(prev => [...prev, ...extractedProducts]);
+            setProducts(prev => removeExpiredProducts([...prev, ...extractedProducts]));
             totalImported += extractedProducts.length;
           }
         }
-        setUploadStatus(`Sucesso! ${totalImported} ofertas importadas de ${files.length} imagens.`);
+        setUploadStatus(totalImported > 0
+          ? `Sucesso! ${totalImported} ofertas importadas de ${files.length} imagens.`
+          : 'Nenhuma oferta válida foi importada. Ofertas vencidas são excluídas automaticamente.'
+        );
         setMarketName('');
         setManualStartDate('');
         setManualEndDate('');
@@ -696,7 +720,7 @@ export default function App() {
     
     try {
       const todayStr = new Date().toISOString().split('T')[0];
-      const extractedProducts = await searchOffersOnline(apiKey, effectiveQuery, cityInput, todayStr);
+      const extractedProducts = removeExpiredProducts(await searchOffersOnline(apiKey, effectiveQuery, cityInput, todayStr));
       
       if (extractedProducts.length > 0) {
         setProducts(prev => {
@@ -707,7 +731,7 @@ export default function App() {
             existingKeys.add(key);
             return true;
           });
-          return [...prev, ...newProducts];
+          return removeExpiredProducts([...prev, ...newProducts]);
         });
         setUploadStatus(`Sucesso! ${extractedProducts.length} ofertas encontradas na internet para a cidade de ${cityInput}.`);
         setOnlineSearchQuery('');
@@ -1025,7 +1049,7 @@ export default function App() {
       return !isDateExpired(p.endDate);
     });
 
-    const targetList = hideExpired ? activeProducts : (activeProducts.length > 0 ? activeProducts : marketProducts);
+    const targetList = activeProducts;
 
     const rankedMatches = targetList
       .map(product => ({ product, score: getProductMatchScore(itemName, product) }))
@@ -1148,9 +1172,6 @@ export default function App() {
 
   // Filter Catalog
   const filteredProducts = products.filter(p => {
-    if (hideExpired && p.endDate) {
-      if (isDateExpired(p.endDate)) return false;
-    }
     const matchesSearch = !searchTerm.trim() || getProductMatchScore(searchTerm, p) >= 0.45;
     const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
     const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name) === selectedProductGroup;
@@ -1787,8 +1808,12 @@ export default function App() {
                     const market = marketName.trim() || 'Supermercado Demo';
                     const city = cityInput.trim() || 'Ourinhos';
                     const demoOffers = generateDemoOffers(market, city);
-                    setProducts(prev => [...prev, ...demoOffers]);
-                    setUploadStatus(`Demo: ${demoOffers.length} ofertas adicionadas para ${market} (${city}).`);
+                    setProducts(prev => removeExpiredProducts([...prev, ...demoOffers]));
+                    const activeDemoOffers = removeExpiredProducts(demoOffers);
+                    setUploadStatus(activeDemoOffers.length > 0
+                      ? `Demo: ${activeDemoOffers.length} ofertas adicionadas para ${market} (${city}).`
+                      : 'Nenhuma oferta válida foi adicionada. Ofertas vencidas são excluídas automaticamente.'
+                    );
                   }}
                 >
                   Carregar Dados de Demonstração
@@ -1857,16 +1882,6 @@ export default function App() {
                 style={{ width: '100%', paddingLeft: '2.2rem' }}
               />
             </div>
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem', cursor: 'pointer', whiteSpace: 'nowrap' }}>
-              <input 
-                type="checkbox" 
-                checked={hideExpired}
-                onChange={(e) => setHideExpired(e.target.checked)}
-                style={{ cursor: 'pointer' }}
-              />
-              Ocultar Expirados
-            </label>
 
             <select 
               className="select-filter"
@@ -1940,16 +1955,6 @@ export default function App() {
           {filteredProducts.length === 0 ? (
             <div style={{ textAlign: 'center', padding: '3rem', color: 'var(--text-secondary)' }}>
               <p>Nenhuma oferta encontrada para os filtros selecionados.</p>
-              {hideExpired && productsMatchingFiltersWithoutExpiry.length > 0 && (
-                <div style={{ marginTop: '1rem', display: 'flex', justifyContent: 'center' }}>
-                  <button
-                    className="btn-secondary"
-                    onClick={() => setHideExpired(false)}
-                  >
-                    Mostrar ofertas expiradas ({productsMatchingFiltersWithoutExpiry.length})
-                  </button>
-                </div>
-              )}
             </div>
           ) : (
             <div className="products-grid">
