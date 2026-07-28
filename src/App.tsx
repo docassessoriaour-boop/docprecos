@@ -190,6 +190,176 @@ const getSearchTokens = (value: string) =>
     .split(' ')
     .filter(token => token.length > 1 && !SEARCH_STOP_WORDS.has(token));
 
+type ProductFamily =
+  | 'milk_uht'
+  | 'milk_condensed'
+  | 'milk_cream'
+  | 'milk_powder'
+  | 'milk_coconut'
+  | 'milk_sweet'
+  | 'chocolate_milk'
+  | 'dairy_drink'
+  | 'laundry_powder'
+  | 'dish_detergent'
+  | 'unknown';
+
+type ProductAttribute =
+  | 'integral'
+  | 'semidesnatado'
+  | 'desnatado'
+  | 'zero_lactose'
+  | 'traditional'
+  | 'zero'
+  | 'light'
+  | 'diet';
+
+interface ProductSearchProfile {
+  family: ProductFamily;
+  attributes: Set<ProductAttribute>;
+}
+
+const hasNormalizedPhrase = (text: string, phrases: string[]) =>
+  phrases.some(phrase => text.includes(normalizeSearchText(phrase)));
+
+const getProductSearchProfile = (value: string): ProductSearchProfile => {
+  const text = normalizeSearchText(value);
+  const attributes = new Set<ProductAttribute>();
+
+  if (hasNormalizedPhrase(text, ['zero lactose', 'sem lactose', '0 lactose'])) attributes.add('zero_lactose');
+  if (hasNormalizedPhrase(text, ['integral'])) attributes.add('integral');
+  if (hasNormalizedPhrase(text, ['semi desnatado', 'semidesnatado'])) attributes.add('semidesnatado');
+  if (hasNormalizedPhrase(text, ['desnatado'])) attributes.add('desnatado');
+  if (hasNormalizedPhrase(text, ['tradicional', 'original', 'regular'])) attributes.add('traditional');
+  if (hasNormalizedPhrase(text, ['zero acucar', 'sem acucar', 'zero'])) attributes.add('zero');
+  if (hasNormalizedPhrase(text, ['light'])) attributes.add('light');
+  if (hasNormalizedPhrase(text, ['diet'])) attributes.add('diet');
+
+  let family: ProductFamily = 'unknown';
+
+  if (hasNormalizedPhrase(text, ['leite condensado'])) family = 'milk_condensed';
+  else if (hasNormalizedPhrase(text, ['creme de leite', 'creme leite'])) family = 'milk_cream';
+  else if (hasNormalizedPhrase(text, ['leite em po', 'leite po', 'leite ninho'])) family = 'milk_powder';
+  else if (hasNormalizedPhrase(text, ['leite de coco'])) family = 'milk_coconut';
+  else if (hasNormalizedPhrase(text, ['doce de leite'])) family = 'milk_sweet';
+  else if (hasNormalizedPhrase(text, ['achocolatado', 'bebida achocolatada'])) family = 'chocolate_milk';
+  else if (hasNormalizedPhrase(text, ['bebida lactea', 'composto lacteo'])) family = 'dairy_drink';
+  else if (
+    text === 'leite' ||
+    text.startsWith('leite ') ||
+    hasNormalizedPhrase(text, [' leite ', 'leite uht', 'leite longa vida', 'uht integral', 'uht desnatado', 'uht semidesnatado'])
+  ) {
+    family = 'milk_uht';
+  } else if (hasNormalizedPhrase(text, ['sabao em po', 'detergente em po', 'po lavagem', 'lava roupas', 'lava roupa'])) {
+    family = 'laundry_powder';
+  } else if (
+    text === 'detergente' ||
+    text.startsWith('detergente ') ||
+    hasNormalizedPhrase(text, ['detergente liquido', 'detergente neutro', 'detergente clear', 'lava loucas'])
+  ) {
+    family = 'dish_detergent';
+  }
+
+  return { family, attributes };
+};
+
+const productFamilyLabels: Record<ProductFamily, string> = {
+  milk_uht: 'Leite UHT',
+  milk_condensed: 'Leite Condensado',
+  milk_cream: 'Creme de Leite',
+  milk_powder: 'Leite em Pó',
+  milk_coconut: 'Leite de Coco',
+  milk_sweet: 'Doce de Leite',
+  chocolate_milk: 'Achocolatado',
+  dairy_drink: 'Bebida Láctea',
+  laundry_powder: 'Sabão em Pó',
+  dish_detergent: 'Detergente',
+  unknown: 'Outros'
+};
+
+const getAttributeGroupLabel = (attributes: Set<ProductAttribute>) => {
+  const labels: string[] = [];
+
+  if (attributes.has('zero_lactose')) labels.push('Zero Lactose');
+  if (attributes.has('integral')) labels.push('Integral');
+  if (attributes.has('semidesnatado')) labels.push('Semidesnatado');
+  if (attributes.has('desnatado')) labels.push('Desnatado');
+  if (attributes.has('zero')) labels.push('Zero');
+  if (attributes.has('light')) labels.push('Light');
+  if (attributes.has('diet')) labels.push('Diet');
+  if (attributes.has('traditional')) labels.push('Tradicional');
+
+  return labels.join(' ');
+};
+
+const getProfileProductGroupLabel = (value: string) => {
+  const profile = getProductSearchProfile(value);
+  if (profile.family === 'unknown') return null;
+
+  const attributeLabel = getAttributeGroupLabel(profile.attributes);
+  return attributeLabel
+    ? `${productFamilyLabels[profile.family]} ${attributeLabel}`
+    : productFamilyLabels[profile.family];
+};
+
+const mutuallyExclusiveAttributes: ProductAttribute[][] = [
+  ['integral', 'semidesnatado', 'desnatado'],
+  ['traditional', 'zero', 'light', 'diet']
+];
+
+const hasProductAttributeConflict = (queryAttributes: Set<ProductAttribute>, productAttributes: Set<ProductAttribute>) =>
+  mutuallyExclusiveAttributes.some(group =>
+    group.some(attribute => queryAttributes.has(attribute)) &&
+    group.some(attribute => productAttributes.has(attribute) && !queryAttributes.has(attribute))
+  );
+
+const requiredSearchAttributes: ProductAttribute[] = [
+  'integral',
+  'semidesnatado',
+  'desnatado',
+  'zero_lactose',
+  'zero',
+  'light',
+  'diet'
+];
+
+const isMissingRequiredProductAttribute = (queryAttributes: Set<ProductAttribute>, productAttributes: Set<ProductAttribute>) =>
+  requiredSearchAttributes.some(attribute => queryAttributes.has(attribute) && !productAttributes.has(attribute));
+
+const isStrictProductMismatch = (query: string, productName: string) => {
+  const queryProfile = getProductSearchProfile(query);
+  const productProfile = getProductSearchProfile(productName);
+
+  if (queryProfile.family !== 'unknown' && productProfile.family !== 'unknown' && queryProfile.family !== productProfile.family) {
+    return true;
+  }
+
+  if (queryProfile.family !== 'unknown' && productProfile.family === 'unknown') {
+    return true;
+  }
+
+  if (hasProductAttributeConflict(queryProfile.attributes, productProfile.attributes)) {
+    return true;
+  }
+
+  if (isMissingRequiredProductAttribute(queryProfile.attributes, productProfile.attributes)) {
+    return true;
+  }
+
+  if (!queryProfile.attributes.has('zero_lactose') && productProfile.attributes.has('zero_lactose')) {
+    return true;
+  }
+
+  if (
+    queryProfile.family === 'milk_uht' &&
+    queryProfile.attributes.size > 0 &&
+    ['milk_condensed', 'milk_cream', 'milk_powder', 'milk_coconut', 'milk_sweet', 'chocolate_milk', 'dairy_drink'].includes(productProfile.family)
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 const PRODUCT_EXCLUSIONS: Record<string, string[]> = {
   leite: [
     'creme de leite',
@@ -236,6 +406,7 @@ const getProductMatchScore = (query: string, product: Product) => {
   const normalizedMarket = normalizeSearchText(product.market);
 
   if (!normalizedQuery) return 1;
+  if (isStrictProductMismatch(query, product.name)) return 0;
   if (isExcludedProductMatch(query, product.name)) return 0;
   if (normalizedName === normalizedQuery) return 100;
   if (normalizedName.includes(normalizedQuery)) return 90;
@@ -313,6 +484,9 @@ const PRODUCT_GROUP_DEFINITIONS = [
 ];
 
 const getProductGroup = (productName: string) => {
+  const profileGroup = getProfileProductGroupLabel(productName);
+  if (profileGroup) return profileGroup;
+
   const normalizedName = normalizeSearchText(productName);
 
   if (!isExcludedProductMatch('leite', productName)) {
@@ -323,7 +497,10 @@ const getProductGroup = (productName: string) => {
     definition.terms.some(term => normalizedName.includes(normalizeSearchText(term)))
   );
 
-  if (group) return group.label;
+  if (group) {
+    const attributeLabel = getAttributeGroupLabel(getProductSearchProfile(productName).attributes);
+    return attributeLabel ? `${group.label} ${attributeLabel}` : group.label;
+  }
 
   const [firstToken] = getSearchTokens(productName)
     .filter(token => !KNOWN_BRANDS.some(brand => normalizeSearchText(brand).split(' ').includes(token)));
