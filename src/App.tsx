@@ -2223,22 +2223,27 @@ export default function App() {
               Adicione os itens que você deseja comprar. O simulador buscará automaticamente os preços nos mercados de {selectedCity}.
             </p>
 
-            <div style={{ position: 'relative', marginTop: '1.5rem' }}>
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+            <form
+              style={{ position: 'relative', marginTop: '1.5rem', zIndex: 2 }}
+              onSubmit={(e) => {
+                e.preventDefault();
+                addToShoppingList(customItemInput);
+              }}
+            >
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'stretch' }}>
                 <input 
                   type="text" 
+                  name="shopping-product-search"
                   placeholder="Digite o nome do produto (ex: Arroz)..." 
                   value={customItemInput}
                   onChange={(e) => setCustomItemInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') addToShoppingList(customItemInput);
-                  }}
                   className="input-glow"
-                  style={{ flex: 1 }}
+                  autoComplete="off"
+                  style={{ flex: 1, minWidth: 0, position: 'relative', zIndex: 3 }}
                 />
                 <button 
+                  type="submit"
                   className="btn-primary"
-                  onClick={() => addToShoppingList(customItemInput)}
                 >
                   Adicionar
                 </button>
@@ -2257,7 +2262,7 @@ export default function App() {
                   ))}
                 </div>
               )}
-            </div>
+            </form>
 
             {/* Quick list suggestions */}
             <div style={{ marginTop: '1rem' }}>

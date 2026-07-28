@@ -128,6 +128,8 @@ body {
   font-size: 0.9rem;
   outline: none;
   transition: var(--transition-smooth);
+  pointer-events: auto;
+  user-select: text;
 }
 
 .input-glow:focus {
@@ -385,6 +387,8 @@ body {
   max-height: 200px;
   overflow-y: auto;
   margin-top: 0.25rem;
+  position: relative;
+  z-index: 4;
 }
 
 .suggestion-item {
