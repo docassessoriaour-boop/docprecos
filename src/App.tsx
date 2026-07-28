@@ -191,6 +191,16 @@ const getSearchTokens = (value: string) =>
     .filter(token => token.length > 1 && !SEARCH_STOP_WORDS.has(token));
 
 type ProductFamily =
+  | 'rice'
+  | 'beans'
+  | 'sugar'
+  | 'oil'
+  | 'coffee'
+  | 'pasta'
+  | 'flour'
+  | 'biscuit'
+  | 'soda'
+  | 'beer'
   | 'milk_uht'
   | 'milk_condensed'
   | 'milk_cream'
@@ -201,6 +211,14 @@ type ProductFamily =
   | 'dairy_drink'
   | 'laundry_powder'
   | 'dish_detergent'
+  | 'toilet_paper'
+  | 'paper_towel'
+  | 'diaper'
+  | 'shampoo'
+  | 'soap'
+  | 'toothpaste'
+  | 'softener'
+  | 'disinfectant'
   | 'unknown';
 
 type ProductAttribute =
@@ -213,22 +231,151 @@ type ProductAttribute =
   | 'light'
   | 'diet';
 
+type ProductPackageKind = 'weight' | 'volume' | 'count';
+
+interface ProductPackageInfo {
+  kind: ProductPackageKind;
+  amount: number;
+  unit: 'g' | 'kg' | 'ml' | 'l' | 'un';
+  normalizedAmount: number;
+  label: string;
+}
+
 interface ProductSearchProfile {
   family: ProductFamily;
   attributes: Set<ProductAttribute>;
+  packageInfo: ProductPackageInfo | null;
+  subtype: string | null;
 }
 
 const hasNormalizedPhrase = (text: string, phrases: string[]) =>
   phrases.some(phrase => text.includes(normalizeSearchText(phrase)));
 
+const parseDecimalNumber = (value: string) => Number(value.replace(',', '.'));
+
+const formatPackageAmount = (amount: number) =>
+  Number.isInteger(amount) ? String(amount) : String(amount).replace('.', ',');
+
+const getProductPackageInfo = (value: string): ProductPackageInfo | null => {
+  const text = normalizeSearchText(value);
+  const packageMatch = text.match(/(?:^|\s)(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|g|gr|gramas|l|lt|litro|litros|ml|un|und|unid|unidade|unidades)(?:\s|$)/);
+  if (!packageMatch) return null;
+
+  const amount = parseDecimalNumber(packageMatch[1]);
+  const rawUnit = packageMatch[2];
+
+  if (['kg', 'quilo', 'quilos'].includes(rawUnit)) {
+    return { kind: 'weight', amount, unit: 'kg', normalizedAmount: amount * 1000, label: `${formatPackageAmount(amount)}kg` };
+  }
+
+  if (['g', 'gr', 'gramas'].includes(rawUnit)) {
+    return { kind: 'weight', amount, unit: 'g', normalizedAmount: amount, label: `${formatPackageAmount(amount)}g` };
+  }
+
+  if (['l', 'lt', 'litro', 'litros'].includes(rawUnit)) {
+    return { kind: 'volume', amount, unit: 'l', normalizedAmount: amount * 1000, label: `${formatPackageAmount(amount)}L` };
+  }
+
+  if (rawUnit === 'ml') {
+    return { kind: 'volume', amount, unit: 'ml', normalizedAmount: amount, label: `${formatPackageAmount(amount)}ml` };
+  }
+
+  return { kind: 'count', amount, unit: 'un', normalizedAmount: amount, label: `${formatPackageAmount(amount)}un` };
+};
+
+const hasDifferentExplicitPackage = (queryPackage: ProductPackageInfo | null, productPackage: ProductPackageInfo | null) => {
+  if (queryPackage && !productPackage) return true;
+  if (!queryPackage || !productPackage) return false;
+  return queryPackage.kind !== productPackage.kind || queryPackage.normalizedAmount !== productPackage.normalizedAmount;
+};
+
+const getProductSubtype = (family: ProductFamily, text: string) => {
+  const subtypeRules: Partial<Record<ProductFamily, { label: string; terms: string[] }[]>> = {
+    rice: [
+      { label: 'Tipo 1', terms: ['tipo 1', 't1'] },
+      { label: 'Tipo 2', terms: ['tipo 2', 't2'] },
+      { label: 'Parboilizado', terms: ['parboilizado'] },
+      { label: 'Integral', terms: ['integral'] },
+      { label: 'Agulhinha', terms: ['agulhinha'] }
+    ],
+    beans: [
+      { label: 'Carioca', terms: ['carioca', 'carioquinha'] },
+      { label: 'Preto', terms: ['preto'] },
+      { label: 'Fradinho', terms: ['fradinho'] },
+      { label: 'Branco', terms: ['branco'] }
+    ],
+    sugar: [
+      { label: 'Cristal', terms: ['cristal'] },
+      { label: 'Refinado', terms: ['refinado'] },
+      { label: 'Mascavo', terms: ['mascavo'] },
+      { label: 'Demarara', terms: ['demerara', 'demarara'] }
+    ],
+    oil: [
+      { label: 'Soja', terms: ['soja'] },
+      { label: 'Girassol', terms: ['girassol'] },
+      { label: 'Milho', terms: ['milho'] },
+      { label: 'Canola', terms: ['canola'] }
+    ],
+    coffee: [
+      { label: 'Tradicional', terms: ['tradicional'] },
+      { label: 'Extra Forte', terms: ['extra forte', 'extraforte'] },
+      { label: 'Solúvel', terms: ['soluvel'] },
+      { label: 'Cápsula', terms: ['capsula', 'capsulas'] },
+      { label: 'Grãos', terms: ['graos', 'grao'] }
+    ],
+    pasta: [
+      { label: 'Espaguete', terms: ['espaguete', 'spaghetti'] },
+      { label: 'Parafuso', terms: ['parafuso', 'fusilli'] },
+      { label: 'Penne', terms: ['penne'] },
+      { label: 'Talharim', terms: ['talharim'] },
+      { label: 'Lasanha', terms: ['lasanha'] }
+    ],
+    flour: [
+      { label: 'Trigo', terms: ['trigo'] },
+      { label: 'Mandioca', terms: ['mandioca'] },
+      { label: 'Milho', terms: ['milho', 'fuba'] },
+      { label: 'Rosca', terms: ['rosca'] }
+    ],
+    biscuit: [
+      { label: 'Recheado', terms: ['recheado', 'recheada'] },
+      { label: 'Cream Cracker', terms: ['cream cracker', 'cracker'] },
+      { label: 'Maizena', terms: ['maizena', 'maisena'] },
+      { label: 'Água e Sal', terms: ['agua e sal'] },
+      { label: 'Wafer', terms: ['wafer'] }
+    ],
+    soda: [
+      { label: 'Cola', terms: ['coca cola', 'cola'] },
+      { label: 'Guaraná', terms: ['guarana'] },
+      { label: 'Laranja', terms: ['fanta laranja', 'laranja'] },
+      { label: 'Limão', terms: ['sprite', 'limao'] }
+    ],
+    beer: [
+      { label: 'Lata', terms: ['lata', 'latinha'] },
+      { label: 'Long Neck', terms: ['long neck', 'longneck'] },
+      { label: 'Garrafa', terms: ['garrafa', 'garrafao'] },
+      { label: 'Puro Malte', terms: ['puro malte'] }
+    ],
+    diaper: [
+      { label: 'P', terms: [' tamanho p ', ' tam p ', ' fralda p '] },
+      { label: 'M', terms: [' tamanho m ', ' tam m ', ' fralda m '] },
+      { label: 'G', terms: [' tamanho g ', ' tam g ', ' fralda g '] },
+      { label: 'XG', terms: [' tamanho xg ', ' tam xg ', ' fralda xg '] },
+      { label: 'XXG', terms: [' tamanho xxg ', ' tam xxg ', ' fralda xxg '] }
+    ]
+  };
+
+  return subtypeRules[family]?.find(rule => hasNormalizedPhrase(` ${text} `, rule.terms))?.label || null;
+};
+
 const getProductSearchProfile = (value: string): ProductSearchProfile => {
   const text = normalizeSearchText(value);
   const attributes = new Set<ProductAttribute>();
+  const packageInfo = getProductPackageInfo(value);
 
   if (hasNormalizedPhrase(text, ['zero lactose', 'sem lactose', '0 lactose'])) attributes.add('zero_lactose');
   if (hasNormalizedPhrase(text, ['integral'])) attributes.add('integral');
   if (hasNormalizedPhrase(text, ['semi desnatado', 'semidesnatado'])) attributes.add('semidesnatado');
-  if (hasNormalizedPhrase(text, ['desnatado'])) attributes.add('desnatado');
+  if (!attributes.has('semidesnatado') && hasNormalizedPhrase(text, ['desnatado'])) attributes.add('desnatado');
   if (hasNormalizedPhrase(text, ['tradicional', 'original', 'regular'])) attributes.add('traditional');
   if (hasNormalizedPhrase(text, ['zero acucar', 'sem acucar', 'zero'])) attributes.add('zero');
   if (hasNormalizedPhrase(text, ['light'])) attributes.add('light');
@@ -236,7 +383,17 @@ const getProductSearchProfile = (value: string): ProductSearchProfile => {
 
   let family: ProductFamily = 'unknown';
 
-  if (hasNormalizedPhrase(text, ['leite condensado'])) family = 'milk_condensed';
+  if (hasNormalizedPhrase(text, ['arroz'])) family = 'rice';
+  else if (hasNormalizedPhrase(text, ['feijao'])) family = 'beans';
+  else if (hasNormalizedPhrase(text, ['acucar'])) family = 'sugar';
+  else if (hasNormalizedPhrase(text, ['oleo de soja', 'oleo vegetal', 'oleo'])) family = 'oil';
+  else if (hasNormalizedPhrase(text, ['cafe', 'cappuccino'])) family = 'coffee';
+  else if (hasNormalizedPhrase(text, ['macarrao', 'massa', 'espaguete', 'parafuso', 'penne'])) family = 'pasta';
+  else if (hasNormalizedPhrase(text, ['farinha'])) family = 'flour';
+  else if (hasNormalizedPhrase(text, ['biscoito', 'bolacha', 'passatempo'])) family = 'biscuit';
+  else if (hasNormalizedPhrase(text, ['refrigerante', 'coca cola', 'guarana', 'fanta', 'sprite', 'soda'])) family = 'soda';
+  else if (hasNormalizedPhrase(text, ['cerveja'])) family = 'beer';
+  else if (hasNormalizedPhrase(text, ['leite condensado'])) family = 'milk_condensed';
   else if (hasNormalizedPhrase(text, ['creme de leite', 'creme leite'])) family = 'milk_cream';
   else if (hasNormalizedPhrase(text, ['leite em po', 'leite po', 'leite ninho'])) family = 'milk_powder';
   else if (hasNormalizedPhrase(text, ['leite de coco'])) family = 'milk_coconut';
@@ -257,12 +414,38 @@ const getProductSearchProfile = (value: string): ProductSearchProfile => {
     hasNormalizedPhrase(text, ['detergente liquido', 'detergente neutro', 'detergente clear', 'lava loucas'])
   ) {
     family = 'dish_detergent';
+  } else if (hasNormalizedPhrase(text, ['papel higienico'])) {
+    family = 'toilet_paper';
+  } else if (hasNormalizedPhrase(text, ['papel toalha'])) {
+    family = 'paper_towel';
+  } else if (hasNormalizedPhrase(text, ['fralda', 'pampers'])) {
+    family = 'diaper';
+  } else if (hasNormalizedPhrase(text, ['shampoo'])) {
+    family = 'shampoo';
+  } else if (hasNormalizedPhrase(text, ['sabonete'])) {
+    family = 'soap';
+  } else if (hasNormalizedPhrase(text, ['creme dental', 'pasta dental'])) {
+    family = 'toothpaste';
+  } else if (hasNormalizedPhrase(text, ['amaciante'])) {
+    family = 'softener';
+  } else if (hasNormalizedPhrase(text, ['desinfetante'])) {
+    family = 'disinfectant';
   }
 
-  return { family, attributes };
+  return { family, attributes, packageInfo, subtype: getProductSubtype(family, text) };
 };
 
 const productFamilyLabels: Record<ProductFamily, string> = {
+  rice: 'Arroz',
+  beans: 'Feijão',
+  sugar: 'Açúcar',
+  oil: 'Óleo',
+  coffee: 'Café',
+  pasta: 'Macarrão',
+  flour: 'Farinha',
+  biscuit: 'Biscoito',
+  soda: 'Refrigerante',
+  beer: 'Cerveja',
   milk_uht: 'Leite UHT',
   milk_condensed: 'Leite Condensado',
   milk_cream: 'Creme de Leite',
@@ -273,6 +456,14 @@ const productFamilyLabels: Record<ProductFamily, string> = {
   dairy_drink: 'Bebida Láctea',
   laundry_powder: 'Sabão em Pó',
   dish_detergent: 'Detergente',
+  toilet_paper: 'Papel Higiênico',
+  paper_towel: 'Papel Toalha',
+  diaper: 'Fralda',
+  shampoo: 'Shampoo',
+  soap: 'Sabonete',
+  toothpaste: 'Creme Dental',
+  softener: 'Amaciante',
+  disinfectant: 'Desinfetante',
   unknown: 'Outros'
 };
 
@@ -296,9 +487,14 @@ const getProfileProductGroupLabel = (value: string) => {
   if (profile.family === 'unknown') return null;
 
   const attributeLabel = getAttributeGroupLabel(profile.attributes);
-  return attributeLabel
-    ? `${productFamilyLabels[profile.family]} ${attributeLabel}`
-    : productFamilyLabels[profile.family];
+  const packageLabel = profile.packageInfo?.label;
+
+  return [
+    productFamilyLabels[profile.family],
+    profile.subtype,
+    attributeLabel,
+    packageLabel
+  ].filter(Boolean).join(' ');
 };
 
 const mutuallyExclusiveAttributes: ProductAttribute[][] = [
@@ -342,6 +538,14 @@ const isStrictProductMismatch = (query: string, productName: string) => {
   }
 
   if (isMissingRequiredProductAttribute(queryProfile.attributes, productProfile.attributes)) {
+    return true;
+  }
+
+  if (hasDifferentExplicitPackage(queryProfile.packageInfo, productProfile.packageInfo)) {
+    return true;
+  }
+
+  if (queryProfile.family !== 'unknown' && queryProfile.subtype && queryProfile.subtype !== productProfile.subtype) {
     return true;
   }
 
@@ -402,14 +606,16 @@ const isExcludedProductMatch = (query: string, productName: string) => {
 const getProductMatchScore = (query: string, product: Product) => {
   const normalizedQuery = normalizeSearchText(query);
   const normalizedName = normalizeSearchText(product.name);
+  const normalizedProductText = normalizeSearchText(`${product.name} ${product.unit}`);
   const normalizedCategory = normalizeSearchText(product.category);
   const normalizedMarket = normalizeSearchText(product.market);
 
   if (!normalizedQuery) return 1;
-  if (isStrictProductMismatch(query, product.name)) return 0;
+  if (isStrictProductMismatch(query, `${product.name} ${product.unit}`)) return 0;
   if (isExcludedProductMatch(query, product.name)) return 0;
   if (normalizedName === normalizedQuery) return 100;
   if (normalizedName.includes(normalizedQuery)) return 90;
+  if (normalizedProductText.includes(normalizedQuery)) return 88;
   if (normalizedQuery.includes(normalizedName)) return 80;
 
   const queryTokens = getSearchTokens(query);
@@ -483,11 +689,12 @@ const PRODUCT_GROUP_DEFINITIONS = [
   { label: 'Desinfetante', terms: ['desinfetante'] }
 ];
 
-const getProductGroup = (productName: string) => {
-  const profileGroup = getProfileProductGroupLabel(productName);
+const getProductGroup = (productName: string, unit = '') => {
+  const productText = `${productName} ${unit}`;
+  const profileGroup = getProfileProductGroupLabel(productText);
   if (profileGroup) return profileGroup;
 
-  const normalizedName = normalizeSearchText(productName);
+  const normalizedName = normalizeSearchText(productText);
 
   if (!isExcludedProductMatch('leite', productName)) {
     return 'Leite';
@@ -498,8 +705,13 @@ const getProductGroup = (productName: string) => {
   );
 
   if (group) {
-    const attributeLabel = getAttributeGroupLabel(getProductSearchProfile(productName).attributes);
-    return attributeLabel ? `${group.label} ${attributeLabel}` : group.label;
+    const profile = getProductSearchProfile(productText);
+    const attributeLabel = getAttributeGroupLabel(profile.attributes);
+    return [
+      group.label,
+      attributeLabel,
+      profile.packageInfo?.label
+    ].filter(Boolean).join(' ');
   }
 
   const [firstToken] = getSearchTokens(productName)
@@ -680,7 +892,7 @@ export default function App() {
   const markets = Array.from(new Set(products.map(p => p.market)));
   const cities = Array.from(new Set(products.map(p => p.city)));
   const categories = ['Todas', ...Array.from(new Set(products.map(p => p.category)))];
-  const productGroups = ['Todos', ...Array.from(new Set(products.map(p => getProductGroup(p.name)))).sort((a, b) => a.localeCompare(b, 'pt-BR'))];
+  const productGroups = ['Todos', ...Array.from(new Set(products.map(p => getProductGroup(p.name, p.unit)))).sort((a, b) => a.localeCompare(b, 'pt-BR'))];
 
   // Suggestions for autocomplete
   useEffect(() => {
@@ -1384,7 +1596,7 @@ export default function App() {
   const filteredProducts = products.filter(p => {
     const matchesSearch = !searchTerm.trim() || getProductMatchScore(searchTerm, p) >= 0.45;
     const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
-    const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name) === selectedProductGroup;
+    const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name, p.unit) === selectedProductGroup;
     const matchesMarket = selectedMarket === 'Todos' || p.market === selectedMarket;
     const matchesCity = selectedCity === 'Todas' || p.city === selectedCity;
     return matchesSearch && matchesCategory && matchesProductGroup && matchesMarket && matchesCity;
@@ -1393,7 +1605,7 @@ export default function App() {
   const productsMatchingFiltersWithoutExpiry = products.filter(p => {
     const matchesSearch = !searchTerm.trim() || getProductMatchScore(searchTerm, p) >= 0.45;
     const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
-    const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name) === selectedProductGroup;
+    const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name, p.unit) === selectedProductGroup;
     const matchesMarket = selectedMarket === 'Todos' || p.market === selectedMarket;
     const matchesCity = selectedCity === 'Todas' || p.city === selectedCity;
     return matchesSearch && matchesCategory && matchesProductGroup && matchesMarket && matchesCity;
@@ -1504,7 +1716,7 @@ export default function App() {
 
     const bestByGroup = Array.from(
       sourceProducts.reduce((acc, product) => {
-        const group = getProductGroup(product.name);
+        const group = getProductGroup(product.name, product.unit);
         const currentBest = acc.get(group);
         if (
           !currentBest ||
