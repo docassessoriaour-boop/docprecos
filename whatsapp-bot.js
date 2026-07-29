@@ -65,6 +65,9 @@ let processedFileKeys = new Set();
 let processedMessageIds = new Set();
 let isScanningOfferFolder = false;
 let quotaPausedUntil = 0;
+let client;
+let isRestartingWhatsAppClient = false;
+let initializeRetryCount = 0;
 
 function normalizePhoneNumber(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -308,6 +311,10 @@ async function downloadMediaViaStream(msg) {
 }
 
 async function downloadMediaDirectlyFromWhatsApp(msg) {
+  if (!client?.pupPage) {
+    return undefined;
+  }
+
   const result = await client.pupPage.evaluate(async (msgId) => {
     const msg =
       window.require('WAWebCollections').Msg.get(msgId) ||
@@ -601,60 +608,132 @@ if (!apiKey) {
   console.log('⚠️ AVISO: GEMINI_API_KEY não definida no arquivo .env.');
 }
 
-console.log('🔄 Inicializando cliente do WhatsApp...');
-if (whatsappWebVersion) {
-  console.log(`Usando WhatsApp Web ${whatsappWebVersion}.`);
-}
-
-const clientOptions = {
-  authStrategy: new LocalAuth({ clientId: authClientId }),
-  puppeteer: {
-    handleSIGINT: false,
-    args: ['--no-sandbox', '--disable-setuid-sandbox']
-  }
-};
-
-if (whatsappWebVersion) {
-  clientOptions.webVersion = whatsappWebVersion;
-  clientOptions.webVersionCache = {
-    type: 'remote',
-    remotePath: `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${whatsappWebVersion}.html`,
-    strict: true
+function buildClientOptions() {
+  const options = {
+    authStrategy: new LocalAuth({ clientId: authClientId }),
+    puppeteer: {
+      handleSIGINT: false,
+      args: ['--no-sandbox', '--disable-setuid-sandbox']
+    }
   };
+
+  if (whatsappWebVersion) {
+    options.webVersion = whatsappWebVersion;
+    options.webVersionCache = {
+      type: 'remote',
+      remotePath: `https://raw.githubusercontent.com/wppconnect-team/wa-version/main/html/${whatsappWebVersion}.html`,
+      strict: true
+    };
+  }
+
+  return options;
 }
 
-const client = new Client(clientOptions);
+function isTransientWhatsAppError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    message.includes('execution context was destroyed') ||
+    message.includes('navigation') ||
+    message.includes('target closed') ||
+    message.includes('session closed') ||
+    message.includes('protocol error') ||
+    message.includes('context') ||
+    message.includes('wweb')
+  );
+}
 
-client.on('qr', (qr) => {
-  console.log('\n📱 ESCANEIE O QR CODE ABAIXO COM O WHATSAPP DO CELULAR:');
-  qrcode.generate(qr, { small: true });
-});
+function scheduleWhatsAppRestart(reason, delayMs = 8000) {
+  if (isRestartingWhatsAppClient) return;
+  isRestartingWhatsAppClient = true;
 
-client.on('loading_screen', (percent, message) => {
-  console.log(`Carregando WhatsApp Web: ${percent}% ${message || ''}`.trim());
-});
+  const reasonText = reason?.message || reason || 'instabilidade do WhatsApp Web';
+  console.log(`🔁 WhatsApp Web recarregou ou falhou: ${reasonText}`);
+  console.log(`Vou tentar iniciar o coletor novamente em ${Math.round(delayMs / 1000)} segundos.`);
 
-client.on('authenticated', () => {
-  console.log('WhatsApp autenticado. Finalizando carregamento...');
-});
+  setTimeout(async () => {
+    const previousClient = client;
+    client = undefined;
 
-client.on('auth_failure', (message) => {
-  console.error('Falha na autenticacao do WhatsApp:', message);
-  console.error('Rode npm run bot:reset e escaneie um novo QR Code.');
-});
+    try {
+      await previousClient?.destroy();
+    } catch {
+      // The page may already be gone after a WhatsApp Web navigation.
+    }
 
-client.on('disconnected', (reason) => {
-  console.log('WhatsApp desconectado:', reason);
-});
+    isRestartingWhatsAppClient = false;
+    initializeRetryCount += 1;
+    initializeWhatsAppClient();
+  }, delayMs);
+}
 
-client.on('ready', () => {
-  console.log('\n🟢 Bot de WhatsApp conectado e pronto para receber mensagens!');
-  console.log(`Numero monitorado: ${ownerWhatsAppNumber}`);
-  console.log('Mercados monitorados automaticamente:');
-  monitoredMarkets.forEach(({ market, phones }) => {
-    console.log(`- ${market}: ${phones.join(' / ')}`);
+function attachWhatsAppHandlers(nextClient) {
+  nextClient.on('qr', (qr) => {
+    console.log('\n📱 ESCANEIE O QR CODE ABAIXO COM O WHATSAPP DO CELULAR:');
+    qrcode.generate(qr, { small: true });
   });
-});
+
+  nextClient.on('loading_screen', (percent, message) => {
+    console.log(`Carregando WhatsApp Web: ${percent}% ${message || ''}`.trim());
+  });
+
+  nextClient.on('authenticated', () => {
+    console.log('WhatsApp autenticado. Finalizando carregamento...');
+  });
+
+  nextClient.on('auth_failure', (message) => {
+    console.error('Falha na autenticacao do WhatsApp:', message);
+    console.error('Rode npm run bot:reset e escaneie um novo QR Code.');
+  });
+
+  nextClient.on('disconnected', (reason) => {
+    console.log('WhatsApp desconectado:', reason);
+    scheduleWhatsAppRestart(reason, 10000);
+  });
+
+  nextClient.on('ready', () => {
+    initializeRetryCount = 0;
+    console.log('\n🟢 Bot de WhatsApp conectado e pronto para receber mensagens!');
+    console.log(`Numero monitorado: ${ownerWhatsAppNumber}`);
+    console.log('Mercados monitorados automaticamente:');
+    monitoredMarkets.forEach(({ market, phones }) => {
+      console.log(`- ${market}: ${phones.join(' / ')}`);
+    });
+  });
+
+  nextClient.on('message', (msg) => {
+    handleWhatsAppMessage(msg).catch(error => {
+      console.error('Erro inesperado ao processar mensagem do WhatsApp:', error);
+    });
+  });
+
+  nextClient.on('message_create', (msg) => {
+    if (!msg.fromMe) return;
+    handleWhatsAppMessage(msg, { includeOwnMessages: true }).catch(error => {
+      console.error('Erro inesperado ao processar mensagem enviada pelo WhatsApp:', error);
+    });
+  });
+}
+
+async function initializeWhatsAppClient() {
+  console.log('🔄 Inicializando cliente do WhatsApp...');
+  if (whatsappWebVersion) {
+    console.log(`Usando WhatsApp Web ${whatsappWebVersion}.`);
+  }
+  if (initializeRetryCount > 0) {
+    console.log(`Tentativa automatica de reconexao: ${initializeRetryCount + 1}.`);
+  }
+
+  const nextClient = new Client(buildClientOptions());
+  client = nextClient;
+  attachWhatsAppHandlers(nextClient);
+
+  try {
+    await nextClient.initialize();
+  } catch (error) {
+    console.error('Falha ao iniciar o WhatsApp Web:', error?.message || error);
+    scheduleWhatsAppRestart(error, 10000);
+  }
+}
 
 async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
   if (msg.fromMe && !includeOwnMessages) return;
@@ -751,18 +830,22 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
   }
 }
 
-// Message listeners
-client.on('message', (msg) => {
-  handleWhatsAppMessage(msg).catch(error => {
-    console.error('Erro inesperado ao processar mensagem do WhatsApp:', error);
-  });
+process.on('unhandledRejection', (reason) => {
+  if (isTransientWhatsAppError(reason)) {
+    scheduleWhatsAppRestart(reason, 10000);
+    return;
+  }
+
+  console.error('Erro inesperado no coletor:', reason);
 });
 
-client.on('message_create', (msg) => {
-  if (!msg.fromMe) return;
-  handleWhatsAppMessage(msg, { includeOwnMessages: true }).catch(error => {
-    console.error('Erro inesperado ao processar mensagem enviada pelo WhatsApp:', error);
-  });
+process.on('uncaughtException', (error) => {
+  if (isTransientWhatsAppError(error)) {
+    scheduleWhatsAppRestart(error, 10000);
+    return;
+  }
+
+  console.error('Erro inesperado no coletor:', error);
 });
 
-client.initialize();
+initializeWhatsAppClient();
