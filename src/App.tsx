@@ -664,6 +664,25 @@ const getLikelyBrand = (productName: string) => {
 
 const formatCurrency = (value: number) => `R$ ${value.toFixed(2).replace('.', ',')}`;
 
+const getReportShift = (date = new Date()) => {
+  const hour = date.getHours();
+  if (hour < 9) return 'TURNO1';
+  if (hour < 15) return 'TURNO2';
+  return 'TURNO3';
+};
+
+const padDatePart = (value: number) => String(value).padStart(2, '0');
+
+const getPricesPdfFileName = (date = new Date()) => {
+  const day = padDatePart(date.getDate());
+  const month = padDatePart(date.getMonth() + 1);
+  const year = date.getFullYear();
+  const hour = padDatePart(date.getHours());
+  const minute = padDatePart(date.getMinutes());
+
+  return `PREÇOS - ${getReportShift(date)}_${day}${month}${year}_${hour}${minute}`;
+};
+
 const formatPromotionDate = (endDateStr?: string) => {
   if (!endDateStr) return 'Validade não informada';
   const [, month, day] = endDateStr.split('-');
@@ -1265,6 +1284,7 @@ export default function App() {
   };
 
   const openPrintableReport = (title: string, bodyHtml: string) => {
+    const pdfFileName = getPricesPdfFileName();
     const reportWindow = window.open('', '_blank');
     if (!reportWindow) {
       alert('O navegador bloqueou a janela do PDF. Permita pop-ups para este site.');
@@ -1276,7 +1296,7 @@ export default function App() {
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>${title}</title>
+          <title>${pdfFileName}</title>
           <style>
             @page { size: A4; margin: 12mm; }
             body { font-family: Arial, sans-serif; color: #111827; }
@@ -1692,13 +1712,14 @@ export default function App() {
       alert('O navegador bloqueou a janela do PDF. Permita pop-ups para este site.');
       return;
     }
+    const pdfFileName = getPricesPdfFileName();
 
     reportWindow.document.write(`
       <!doctype html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Listagem de Produtos - Radar de Precos</title>
+          <title>${pdfFileName}</title>
           <style>
             @page { size: A4; margin: 12mm; }
             body { font-family: Arial, sans-serif; color: #111827; }
@@ -1827,13 +1848,14 @@ export default function App() {
       alert('O navegador bloqueou a janela da lista. Permita pop-ups para este site.');
       return;
     }
+    const pdfFileName = getPricesPdfFileName();
 
     reportWindow.document.write(`
       <!doctype html>
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>Melhores Precos por Item - Radar de Precos</title>
+          <title>${pdfFileName}</title>
           <style>
             @page { size: A4; margin: 12mm; }
             body { font-family: Arial, sans-serif; color: #111827; }
