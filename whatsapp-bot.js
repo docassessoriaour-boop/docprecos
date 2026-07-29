@@ -37,6 +37,7 @@ const PORT = 3001;
 const apiKey = process.env.GEMINI_API_KEY || '';
 const shouldResetSession = process.argv.includes('--reset-session');
 const whatsappWebVersion = process.env.WWEB_VERSION || '';
+const enableDirectMediaDownload = process.env.WWEB_DIRECT_MEDIA === 'true';
 const authClientId = shouldResetSession ? `radar-precos-${Date.now()}` : 'radar-precos';
 const offersInboxFolder = path.resolve(process.env.OFFERS_INBOX || 'ENTRADA_OFERTAS');
 const processedFilesPath = path.resolve('.processed-offer-files.json');
@@ -68,6 +69,7 @@ let quotaPausedUntil = 0;
 let client;
 let isRestartingWhatsAppClient = false;
 let initializeRetryCount = 0;
+let isWhatsAppReady = false;
 
 function normalizePhoneNumber(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -202,6 +204,11 @@ function getFriendlyError(error) {
   }
 
   return error?.message || String(error);
+}
+
+function getCompactError(error) {
+  const message = String(error?.message || error || '').trim();
+  return message || error?.name || 'erro sem detalhe';
 }
 
 function parseJsonArrayResponse(text) {
@@ -391,7 +398,12 @@ async function downloadMediaWithRetry(msg, attempts = 4) {
       if (streamedMedia?.data && streamedMedia?.mimetype) {
         return streamedMedia;
       }
+    } catch (error) {
+      lastError = error;
+      console.log(`Tentativa ${attempt}/${attempts}: stream de mídia indisponível (${getCompactError(error)}).`);
+    }
 
+    try {
       const media = await msg.downloadMedia();
       if (media?.data && media?.mimetype) {
         return media;
@@ -399,7 +411,10 @@ async function downloadMediaWithRetry(msg, attempts = 4) {
       lastError = new Error('WhatsApp nao retornou o arquivo da midia.');
     } catch (error) {
       lastError = error;
+      console.log(`Tentativa ${attempt}/${attempts}: WhatsApp nao liberou a mídia (${getCompactError(error)}).`);
+    }
 
+    if (enableDirectMediaDownload) {
       try {
         const media = await downloadMediaDirectlyFromWhatsApp(msg);
         if (media?.data && media?.mimetype) {
@@ -407,7 +422,10 @@ async function downloadMediaWithRetry(msg, attempts = 4) {
         }
       } catch (fallbackError) {
         lastError = fallbackError;
+        console.log(`Tentativa ${attempt}/${attempts}: download interno falhou (${getCompactError(fallbackError)}).`);
       }
+    } else if (attempt === 1) {
+      console.log('Download interno do WhatsApp Web desativado para evitar falhas desta versão. Para reativar, use WWEB_DIRECT_MEDIA=true.');
     }
 
     if (attempt < attempts) {
@@ -686,11 +704,13 @@ function attachWhatsAppHandlers(nextClient) {
   });
 
   nextClient.on('disconnected', (reason) => {
+    isWhatsAppReady = false;
     console.log('WhatsApp desconectado:', reason);
     scheduleWhatsAppRestart(reason, 10000);
   });
 
   nextClient.on('ready', () => {
+    isWhatsAppReady = true;
     initializeRetryCount = 0;
     console.log('\n🟢 Bot de WhatsApp conectado e pronto para receber mensagens!');
     console.log(`Numero monitorado: ${ownerWhatsAppNumber}`);
@@ -715,6 +735,7 @@ function attachWhatsAppHandlers(nextClient) {
 }
 
 async function initializeWhatsAppClient() {
+  isWhatsAppReady = false;
   console.log('🔄 Inicializando cliente do WhatsApp...');
   if (whatsappWebVersion) {
     console.log(`Usando WhatsApp Web ${whatsappWebVersion}.`);
@@ -775,6 +796,11 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
 
   // 2. Multimodal offer extraction from image
   if (msg.hasMedia) {
+    if (!isWhatsAppReady) {
+      console.log('Mídia recebida enquanto o WhatsApp Web ainda carregava. Aguardando finalizar...');
+      await wait(8000);
+    }
+
     const messageSource = getMessageSource(msg);
     const shouldProcessMedia =
       messageSource.isMonitoredMarket ||
@@ -788,6 +814,10 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
 
     console.log('📩 Recebida imagem ou arquivo de mídia via WhatsApp...');
     try {
+      if (!isWhatsAppReady) {
+        throw new Error('WhatsApp Web ainda nao terminou de carregar.');
+      }
+
       const media = await downloadMediaWithRetry(msg);
       console.log(`Mídia baixada: ${media.mimetype}${media.filename ? ` (${media.filename})` : ''}${media.filesize ? ` - ${media.filesize} bytes` : ''}`);
       const isImage = media.mimetype.startsWith('image/');
@@ -813,16 +843,18 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
         await safeReply(msg, 'Recebi a mídia, mas por enquanto processo automaticamente apenas imagens e PDFs de ofertas.');
       }
     } catch (err) {
-      console.error('Erro ao processar mídia do WhatsApp:', err);
+      console.log(`Erro ao processar mídia do WhatsApp: ${getCompactError(err)}`);
       const errorMessage = String(err?.message || err || '');
       const isDownloadError =
         errorMessage.length <= 3 ||
         errorMessage.toLowerCase().includes('download') ||
         errorMessage.toLowerCase().includes('midia') ||
-        errorMessage.toLowerCase().includes('media');
+        errorMessage.toLowerCase().includes('media') ||
+        errorMessage.toLowerCase().includes('mídia') ||
+        errorMessage.toLowerCase().includes('carregar');
 
       if (isDownloadError) {
-        await safeReply(msg, '❌ O WhatsApp Web não liberou o arquivo para leitura. Tente encaminhar novamente o PDF/imagem ou envie como documento.');
+        await safeReply(msg, '❌ O WhatsApp Web não liberou esse arquivo para leitura automática. Encaminhe novamente como DOCUMENTO ou salve o PDF/imagem na pasta ENTRADA_OFERTAS.');
       } else {
         await safeReply(msg, '❌ Erro ao analisar a mídia com IA. Verifique a chave e tente novamente.');
       }
