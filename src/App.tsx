@@ -248,6 +248,16 @@ interface ProductSearchProfile {
   subtype: string | null;
 }
 
+interface WhatsAppCollectorConfig {
+  ownerWhatsAppNumber: string;
+  monitoredMarkets: {
+    market: string;
+    phones: string[];
+  }[];
+  offersInboxFolder: string;
+  receivedWhatsAppFolder: string;
+}
+
 const hasNormalizedPhrase = (text: string, phrases: string[]) =>
   phrases.some(phrase => text.includes(normalizeSearchText(phrase)));
 
@@ -740,6 +750,7 @@ export default function App() {
   const [uploading, setUploading] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [whatsAppBridgeStatus, setWhatsAppBridgeStatus] = useState('Aguardando coletor local');
+  const [whatsAppCollectorConfig, setWhatsAppCollectorConfig] = useState<WhatsAppCollectorConfig | null>(null);
   const [showApiKey, setShowApiKey] = useState(false);
   const importedWhatsAppIds = useRef<Set<string>>(new Set());
   
@@ -879,12 +890,30 @@ export default function App() {
       }
     };
 
+    const loadWhatsAppConfig = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/whatsapp-config');
+        if (!response.ok) return;
+        const config = await response.json() as WhatsAppCollectorConfig;
+        if (!cancelled) {
+          setWhatsAppCollectorConfig(config);
+        }
+      } catch {
+        if (!cancelled) {
+          setWhatsAppCollectorConfig(null);
+        }
+      }
+    };
+
+    loadWhatsAppConfig();
     importFromWhatsAppBridge();
     const interval = window.setInterval(importFromWhatsAppBridge, 8000);
+    const configInterval = window.setInterval(loadWhatsAppConfig, 30000);
 
     return () => {
       cancelled = true;
       window.clearInterval(interval);
+      window.clearInterval(configInterval);
     };
   }, []);
 
@@ -1986,8 +2015,32 @@ export default function App() {
             }}>
               <strong>Coletor automático:</strong> {whatsAppBridgeStatus}
               <div style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', marginTop: '0.4rem' }}>
-                Para evitar falhas do WhatsApp Web, salve PDFs/imagens na pasta ENTRADA_OFERTAS. Exemplo de nome: Mercado Avenida - ofertas.pdf.
+                Recebe ofertas pelo WhatsApp {whatsAppCollectorConfig?.ownerWhatsAppNumber || '14988359798'} e salva PDFs/imagens em {whatsAppCollectorConfig?.receivedWhatsAppFolder || 'ENTRADA_OFERTAS\\WhatsApp'}.
               </div>
+              {whatsAppCollectorConfig && (
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.65rem' }}>
+                  {whatsAppCollectorConfig.monitoredMarkets.map(({ market, phones }) => (
+                    <span
+                      key={market}
+                      style={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.3rem',
+                        padding: '0.28rem 0.5rem',
+                        borderRadius: '999px',
+                        background: 'rgba(255,255,255,0.08)',
+                        border: '1px solid rgba(255,255,255,0.1)',
+                        fontSize: '0.74rem',
+                        color: 'var(--text-secondary)'
+                      }}
+                      title={phones.join(' / ')}
+                    >
+                      <CheckCircle size={12} />
+                      {market}
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
             
             {/* Import Method selection */}

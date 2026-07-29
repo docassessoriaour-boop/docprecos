@@ -40,6 +40,16 @@ const whatsappWebVersion = process.env.WWEB_VERSION || '';
 const authClientId = shouldResetSession ? `radar-precos-${Date.now()}` : 'radar-precos';
 const offersInboxFolder = path.resolve(process.env.OFFERS_INBOX || 'ENTRADA_OFERTAS');
 const processedFilesPath = path.resolve('.processed-offer-files.json');
+const receivedWhatsAppFolder = path.join(offersInboxFolder, 'WhatsApp');
+const ownerWhatsAppNumber = '14988359798';
+const monitoredMarkets = [
+  { market: 'AMIGAO', phones: ['14996230389', '14920059637'] },
+  { market: 'SAGRADA FAMILIA', phones: ['14998290971', '14996633969', '14996311107'] },
+  { market: 'MAX', phones: ['14991297822', '41920001902'] },
+  { market: 'SAO JUDAS', phones: ['11956397896', '14996695703'] },
+  { market: 'ATACADAO', phones: ['14997445160'] },
+  { market: 'BOM JESUS', phones: ['14997782966'] }
+];
 const GEMINI_MODEL_FALLBACKS = [
   'gemini-2.0-flash-lite',
   'gemini-2.5-flash-lite',
@@ -52,8 +62,86 @@ const GEMINI_MODEL_FALLBACKS = [
 let importedOffers = [];
 let pendingShoppingItems = [];
 let processedFileKeys = new Set();
+let processedMessageIds = new Set();
 let isScanningOfferFolder = false;
 let quotaPausedUntil = 0;
+
+function normalizePhoneNumber(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '';
+  return digits.startsWith('55') ? digits : `55${digits}`;
+}
+
+const ownerWhatsAppNumberNormalized = normalizePhoneNumber(ownerWhatsAppNumber);
+const monitoredPhoneToMarket = new Map(
+  monitoredMarkets.flatMap(({ market, phones }) =>
+    phones.map(phone => [normalizePhoneNumber(phone), market])
+  )
+);
+
+function getBareWhatsAppNumber(value) {
+  return String(value || '')
+    .split('@')[0]
+    .replace(/\D/g, '');
+}
+
+function getMessageSource(msg) {
+  const senderNumber = getBareWhatsAppNumber(msg.author || msg.from);
+  const chatNumber = getBareWhatsAppNumber(msg.from);
+  const targetNumber = getBareWhatsAppNumber(msg.to);
+  const market =
+    monitoredPhoneToMarket.get(senderNumber) ||
+    monitoredPhoneToMarket.get(chatNumber);
+
+  return {
+    senderNumber,
+    chatNumber,
+    targetNumber,
+    market,
+    isOwnerMessage:
+      senderNumber === ownerWhatsAppNumberNormalized ||
+      chatNumber === ownerWhatsAppNumberNormalized ||
+      targetNumber === ownerWhatsAppNumberNormalized,
+    isMonitoredMarket: Boolean(market)
+  };
+}
+
+function getMediaExtension(media) {
+  const filenameExt = path.extname(media.filename || '').toLowerCase();
+  if (filenameExt) return filenameExt;
+
+  const mimeExtensions = {
+    'application/pdf': '.pdf',
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/webp': '.webp'
+  };
+
+  return mimeExtensions[media.mimetype] || '';
+}
+
+function sanitizeFileNamePart(value) {
+  return String(value || 'WhatsApp')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9 -]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 80) || 'WhatsApp';
+}
+
+function saveIncomingMediaFile(media, marketName) {
+  fs.mkdirSync(receivedWhatsAppFolder, { recursive: true });
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[:.]/g, '-');
+  const ext = getMediaExtension(media);
+  const fileName = `${sanitizeFileNamePart(marketName)} - WhatsApp - ${timestamp}${ext}`;
+  const filePath = path.join(receivedWhatsAppFolder, fileName);
+
+  fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
+  return filePath;
+}
 
 function backupFolderIfExists(folderName) {
   const folderPath = path.resolve(folderName);
@@ -476,6 +564,15 @@ app.get('/api/whatsapp-imports', (req, res) => {
   });
 });
 
+app.get('/api/whatsapp-config', (req, res) => {
+  res.json({
+    ownerWhatsAppNumber,
+    monitoredMarkets,
+    offersInboxFolder,
+    receivedWhatsAppFolder
+  });
+});
+
 // Endpoint to clear imports
 app.post('/api/whatsapp-clear', (req, res) => {
   importedOffers = [];
@@ -541,11 +638,19 @@ client.on('disconnected', (reason) => {
 
 client.on('ready', () => {
   console.log('\n🟢 Bot de WhatsApp conectado e pronto para receber mensagens!');
-  console.log('Envie mensagens de texto com listas, fotos de panfletos ou PDFs para o seu próprio número ou grupo com o bot.');
+  console.log(`Numero monitorado: ${ownerWhatsAppNumber}`);
+  console.log('Mercados monitorados automaticamente:');
+  monitoredMarkets.forEach(({ market, phones }) => {
+    console.log(`- ${market}: ${phones.join(' / ')}`);
+  });
 });
 
-// Message listener
-client.on('message', async (msg) => {
+async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
+  if (msg.fromMe && !includeOwnMessages) return;
+  const messageId = msg.id?._serialized || `${msg.from}-${msg.timestamp}-${msg.body || ''}`;
+  if (processedMessageIds.has(messageId)) return;
+  processedMessageIds.add(messageId);
+
   const text = msg.body ? msg.body.trim() : '';
   
   // 1. Text message list imports (e.g. "/lista arroz, feijao, leite")
@@ -580,6 +685,17 @@ client.on('message', async (msg) => {
 
   // 2. Multimodal offer extraction from image
   if (msg.hasMedia) {
+    const messageSource = getMessageSource(msg);
+    const shouldProcessMedia =
+      messageSource.isMonitoredMarket ||
+      (msg.fromMe && includeOwnMessages) ||
+      messageSource.isOwnerMessage;
+
+    if (!shouldProcessMedia) {
+      console.log(`Mídia ignorada: remetente fora da lista monitorada (${msg.author || msg.from}).`);
+      return;
+    }
+
     console.log('📩 Recebida imagem ou arquivo de mídia via WhatsApp...');
     try {
       const media = await downloadMediaWithRetry(msg);
@@ -589,8 +705,14 @@ client.on('message', async (msg) => {
 
       if (isImage || isPdf) {
         const chat = await msg.getChat();
-        const fallbackMarket = chat?.name || msg._data?.notifyName || 'WhatsApp';
+        const fallbackMarket =
+          messageSource.market ||
+          chat?.name ||
+          msg._data?.notifyName ||
+          'WhatsApp encaminhado';
         const sourceLabel = isPdf ? 'PDF recebido pelo WhatsApp' : 'Imagem recebida pelo WhatsApp';
+        const savedFilePath = saveIncomingMediaFile(media, fallbackMarket);
+        console.log(`Arquivo salvo em: ${savedFilePath}`);
         msg.reply(`⏳ ${isPdf ? 'PDF' : 'Imagem'} recebido. Analisando ofertas automaticamente...`);
 
         const extractedOffers = await extractOffersFromMedia(media, fallbackMarket, sourceLabel);
@@ -616,6 +738,20 @@ client.on('message', async (msg) => {
       }
     }
   }
+}
+
+// Message listeners
+client.on('message', (msg) => {
+  handleWhatsAppMessage(msg).catch(error => {
+    console.error('Erro inesperado ao processar mensagem do WhatsApp:', error);
+  });
+});
+
+client.on('message_create', (msg) => {
+  if (!msg.fromMe) return;
+  handleWhatsAppMessage(msg, { includeOwnMessages: true }).catch(error => {
+    console.error('Erro inesperado ao processar mensagem enviada pelo WhatsApp:', error);
+  });
 });
 
 client.initialize();
