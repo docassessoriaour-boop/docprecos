@@ -271,6 +271,14 @@ function normalizeOffer(rawItem, idx, fallbackMarket, sourceLabel) {
 
 const wait = (ms) => new Promise(resolve => setTimeout(resolve, ms));
 
+async function safeReply(msg, text) {
+  try {
+    await msg.reply(text);
+  } catch (error) {
+    console.log(`Nao foi possivel responder pelo WhatsApp: ${error?.message || error}`);
+  }
+}
+
 async function downloadMediaViaStream(msg) {
   if (typeof msg.downloadMediaStream !== 'function') {
     return undefined;
@@ -338,9 +346,12 @@ async function downloadMediaDirectlyFromWhatsApp(msg) {
       }
     };
 
-    const decryptedMedia = await window
-      .require('WAWebDownloadManager')
-      .downloadManager.downloadAndMaybeDecrypt({
+    const downloadManager = window.require('WAWebDownloadManager')?.downloadManager;
+    if (typeof downloadManager?.downloadAndMaybeDecrypt !== 'function') {
+      return null;
+    }
+
+    const decryptedMedia = await downloadManager.downloadAndMaybeDecrypt({
         directPath: msg.directPath,
         encFilehash: msg.encFilehash,
         filehash: msg.filehash,
@@ -675,11 +686,11 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
             quantity: item.quantity || 1
           });
         });
-        msg.reply(`✅ Adicionado ${parsed.length} itens à lista do Radar de Preços!`);
+        await safeReply(msg, `✅ Adicionado ${parsed.length} itens à lista do Radar de Preços!`);
       }
     } catch (err) {
       console.error('Erro ao processar lista do WhatsApp:', err);
-      msg.reply('❌ Erro ao analisar lista. Verifique a chave de API.');
+      await safeReply(msg, '❌ Erro ao analisar lista. Verifique a chave de API.');
     }
   }
 
@@ -713,14 +724,14 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
         const sourceLabel = isPdf ? 'PDF recebido pelo WhatsApp' : 'Imagem recebida pelo WhatsApp';
         const savedFilePath = saveIncomingMediaFile(media, fallbackMarket);
         console.log(`Arquivo salvo em: ${savedFilePath}`);
-        msg.reply(`⏳ ${isPdf ? 'PDF' : 'Imagem'} recebido. Analisando ofertas automaticamente...`);
+        await safeReply(msg, `⏳ ${isPdf ? 'PDF' : 'Imagem'} recebido. Analisando ofertas automaticamente...`);
 
         const extractedOffers = await extractOffersFromMedia(media, fallbackMarket, sourceLabel);
         importedOffers.push(...extractedOffers);
 
-        msg.reply(`✅ Sucesso! Extraídas ${extractedOffers.length} ofertas para o Radar de Preços.`);
+        await safeReply(msg, `✅ Sucesso! Extraídas ${extractedOffers.length} ofertas para o Radar de Preços.`);
       } else {
-        msg.reply('Recebi a mídia, mas por enquanto processo automaticamente apenas imagens e PDFs de ofertas.');
+        await safeReply(msg, 'Recebi a mídia, mas por enquanto processo automaticamente apenas imagens e PDFs de ofertas.');
       }
     } catch (err) {
       console.error('Erro ao processar mídia do WhatsApp:', err);
@@ -732,9 +743,9 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
         errorMessage.toLowerCase().includes('media');
 
       if (isDownloadError) {
-        msg.reply('❌ O WhatsApp Web não liberou o arquivo para leitura. Tente encaminhar novamente o PDF/imagem ou envie como documento.');
+        await safeReply(msg, '❌ O WhatsApp Web não liberou o arquivo para leitura. Tente encaminhar novamente o PDF/imagem ou envie como documento.');
       } else {
-        msg.reply('❌ Erro ao analisar a mídia com IA. Verifique a chave e tente novamente.');
+        await safeReply(msg, '❌ Erro ao analisar a mídia com IA. Verifique a chave e tente novamente.');
       }
     }
   }
