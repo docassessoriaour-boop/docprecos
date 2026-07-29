@@ -20,6 +20,12 @@ O projeto inclui um coletor local para baixar e importar promoções recebidas p
 3. Em outro terminal, inicie o coletor com `npm run bot`.
 4. Escaneie o QR Code com o WhatsApp do número `14988359798`.
 
+Tambem existem atalhos prontos na raiz do projeto:
+
+- `INICIAR_APP_E_BOT.cmd`: abre o app, inicia o coletor automatico e abre o navegador.
+- `GERAR_QR_CODE_WHATSAPP.cmd`: reinicia a sessao do WhatsApp e mostra um QR Code novo.
+- `CRIAR_ATALHOS_AREA_DE_TRABALHO.ps1`: cria os dois atalhos acima na Area de Trabalho.
+
 O coletor monitora automaticamente ofertas enviadas pelos contatos:
 
 - AMIGAO: `14996230389` / `14920059637`
