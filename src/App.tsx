@@ -741,6 +741,40 @@ const getLikelyBrand = (productName: string) => {
 
 const formatCurrency = (value: number) => `R$ ${value.toFixed(2).replace('.', ',')}`;
 
+const getProductPackageValueLabel = (packageInfo: ProductPackageInfo) => {
+  if (packageInfo.kind === 'weight') return 'kg';
+  if (packageInfo.kind === 'volume') return 'L';
+  return 'un';
+};
+
+const getPackageValuePrice = (price: number, packageInfo: ProductPackageInfo) => {
+  if (packageInfo.normalizedAmount <= 0) return null;
+
+  if (packageInfo.kind === 'weight') {
+    return (price / packageInfo.normalizedAmount) * 1000;
+  }
+
+  if (packageInfo.kind === 'volume') {
+    return (price / packageInfo.normalizedAmount) * 1000;
+  }
+
+  return price / packageInfo.normalizedAmount;
+};
+
+const getProductPackageValue = (product: Product) => {
+  const packageInfo = getProductPackageInfo(`${product.name} ${product.unit}`);
+  if (!packageInfo) return null;
+
+  const valuePrice = getPackageValuePrice(product.price, packageInfo);
+  if (valuePrice === null) return null;
+
+  return {
+    packageInfo,
+    valuePrice,
+    label: `${formatCurrency(valuePrice)}/${getProductPackageValueLabel(packageInfo)}`
+  };
+};
+
 const getReportShift = (date = new Date()) => {
   const hour = date.getHours();
   if (hour < 9) return 'TURNO1';
@@ -1628,13 +1662,26 @@ export default function App() {
 
     const itemsWithOffers = [...list]
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
-      .map(item => ({
-        item,
-        offers: getAllOfferOptionsForItem(item.name, city)
-      }));
+      .map(item => {
+        const offers = getAllOfferOptionsForItem(item.name, city);
+        const offerValueDetails = offers.map(offer => ({
+          offer,
+          value: getProductPackageValue(offer)
+        }));
+        const comparableValues = offerValueDetails
+          .filter(({ value }) => value !== null)
+          .map(({ value }) => value?.valuePrice || 0);
+        const bestValuePrice = comparableValues.length > 0 ? Math.min(...comparableValues) : null;
 
-    const foundOffersCount = itemsWithOffers.reduce((total, item) => total + item.offers.length, 0);
-    const missingItemsCount = itemsWithOffers.filter(item => item.offers.length === 0).length;
+        return {
+          item,
+          offerValueDetails,
+          bestValuePrice
+        };
+      });
+
+    const foundOffersCount = itemsWithOffers.reduce((total, item) => total + item.offerValueDetails.length, 0);
+    const missingItemsCount = itemsWithOffers.filter(item => item.offerValueDetails.length === 0).length;
 
     const bodyHtml = `
       <div class="summary">
@@ -1661,39 +1708,47 @@ export default function App() {
             <th>UND</th>
             <th class="money">Qtd</th>
             <th class="money">Preço unit.</th>
+            <th class="money">R$/Base</th>
+            <th>Vantagem</th>
             <th class="money">Subtotal</th>
             <th>Validade</th>
           </tr>
         </thead>
         <tbody>
-          ${itemsWithOffers.map(({ item, offers }) => {
-            if (offers.length === 0) {
+          ${itemsWithOffers.map(({ item, offerValueDetails, bestValuePrice }) => {
+            if (offerValueDetails.length === 0) {
               return `
                 <tr>
                   <td>${item.name}</td>
-                  <td colspan="8"><span class="missing">Nenhum preço encontrado</span></td>
+                  <td colspan="10"><span class="missing">Nenhum preço encontrado</span></td>
                 </tr>
               `;
             }
 
-            return offers.map((offer, offerIndex) => `
-              <tr>
-                <td>${offerIndex === 0 ? item.name : ''}</td>
-                <td>${offer.name}</td>
-                <td>${getLikelyBrand(offer.name)}</td>
-                <td>${offer.market}</td>
-                <td>${offer.unit || '-'}</td>
-                <td class="money">${item.quantity}</td>
-                <td class="money">R$ ${offer.price.toFixed(2).replace('.', ',')}</td>
-                <td class="money">R$ ${(offer.price * item.quantity).toFixed(2).replace('.', ',')}</td>
-                <td>${formatPromotionDate(offer.endDate)}</td>
-              </tr>
-            `).join('');
+            return offerValueDetails.map(({ offer, value }, offerIndex) => {
+              const isBestValue = value && bestValuePrice !== null && Math.abs(value.valuePrice - bestValuePrice) < 0.001;
+
+              return `
+                <tr>
+                  <td>${offerIndex === 0 ? item.name : ''}</td>
+                  <td>${offer.name}</td>
+                  <td>${getLikelyBrand(offer.name)}</td>
+                  <td>${offer.market}</td>
+                  <td>${offer.unit || '-'}</td>
+                  <td class="money">${item.quantity}</td>
+                  <td class="money">R$ ${offer.price.toFixed(2).replace('.', ',')}</td>
+                  <td class="money">${value ? value.label : '-'}</td>
+                  <td>${isBestValue ? '<strong>Mais vantajoso</strong>' : value ? '' : 'Sem base'}</td>
+                  <td class="money">R$ ${(offer.price * item.quantity).toFixed(2).replace('.', ',')}</td>
+                  <td>${formatPromotionDate(offer.endDate)}</td>
+                </tr>
+              `;
+            }).join('');
           }).join('')}
         </tbody>
       </table>
       <div class="note">
-        Relatorio limitado aos itens da lista salva. Produtos em ordem alfabetica; para cada item, os preços correspondentes aparecem do menor para o maior para facilitar a escolha manual.
+        Relatorio limitado aos itens da lista salva. A coluna R$/Base compara embalagens diferentes por kg, litro ou unidade quando a embalagem é identificada.
       </div>
     `;
 
@@ -1911,6 +1966,11 @@ export default function App() {
       })
       .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
+        const aValue = getProductPackageValue(a.product)?.valuePrice;
+        const bValue = getProductPackageValue(b.product)?.valuePrice;
+        if (aValue !== undefined && bValue !== undefined && aValue !== bValue) return aValue - bValue;
+        if (aValue !== undefined && bValue === undefined) return -1;
+        if (aValue === undefined && bValue !== undefined) return 1;
         if (a.product.price !== b.product.price) return a.product.price - b.product.price;
         return a.product.market.localeCompare(b.product.market, 'pt-BR') ||
           a.product.name.localeCompare(b.product.name, 'pt-BR');
