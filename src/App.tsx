@@ -1658,6 +1658,7 @@ export default function App() {
             <th>Produto encontrado</th>
             <th>Marca</th>
             <th>Mercado</th>
+            <th>UND</th>
             <th class="money">Qtd</th>
             <th class="money">Preço unit.</th>
             <th class="money">Subtotal</th>
@@ -1670,7 +1671,7 @@ export default function App() {
               return `
                 <tr>
                   <td>${item.name}</td>
-                  <td colspan="7"><span class="missing">Nenhum preço encontrado</span></td>
+                  <td colspan="8"><span class="missing">Nenhum preço encontrado</span></td>
                 </tr>
               `;
             }
@@ -1681,6 +1682,7 @@ export default function App() {
                 <td>${offer.name}</td>
                 <td>${getLikelyBrand(offer.name)}</td>
                 <td>${offer.market}</td>
+                <td>${offer.unit || '-'}</td>
                 <td class="money">${item.quantity}</td>
                 <td class="money">R$ ${offer.price.toFixed(2).replace('.', ',')}</td>
                 <td class="money">R$ ${(offer.price * item.quantity).toFixed(2).replace('.', ',')}</td>
