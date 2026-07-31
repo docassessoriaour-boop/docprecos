@@ -411,6 +411,95 @@ body {
   padding-right: 0.5rem;
 }
 
+.client-prelist-box {
+  margin-top: 1.25rem;
+  padding-top: 1.25rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.client-prelist-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto;
+  gap: 0.6rem;
+  align-items: stretch;
+}
+
+.prelist-header {
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+}
+
+.prelist-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 1rem;
+}
+
+.prelist-card {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 1rem;
+}
+
+.prelist-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.prelist-summary {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.65rem;
+  margin: 1rem 0;
+}
+
+.prelist-summary > div {
+  min-width: 0;
+  background: rgba(15, 23, 42, 0.45);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 0.65rem;
+}
+
+.prelist-summary strong {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.95rem;
+}
+
+.prelist-items-preview {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-height: 5.5rem;
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+}
+
+.prelist-items-preview span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prelist-actions {
+  display: grid;
+  grid-template-columns: 0.8fr 1.2fr;
+  gap: 0.65rem;
+  margin-top: 1rem;
+}
+
+.prelist-actions .btn-primary,
+.prelist-actions .btn-secondary {
+  justify-content: center;
+  padding-left: 0.8rem;
+  padding-right: 0.8rem;
+  text-align: center;
+}
+
 .shopping-item-row {
   display: flex;
   justify-content: space-between;
@@ -579,6 +668,17 @@ body {
 }
 
 @media (max-width: 700px) {
+  .client-prelist-form,
+  .prelist-actions,
+  .prelist-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .prelist-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
   .item-choice-summary,
   .item-choice-controls {
     grid-template-columns: 1fr;

@@ -258,6 +258,16 @@ interface WhatsAppCollectorConfig {
   receivedWhatsAppFolder: string;
 }
 
+interface ClientPreList {
+  id: string;
+  clientName: string;
+  listName: string;
+  city: string;
+  items: ShoppingItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
 const hasNormalizedPhrase = (text: string, phrases: string[]) =>
   phrases.some(phrase => text.includes(normalizeSearchText(phrase)));
 
@@ -756,7 +766,7 @@ export default function App() {
     return localStorage.getItem('gemini_api_key') || '';
   });
   
-  const [activeTab, setActiveTab] = useState<'upload' | 'catalog' | 'simulator'>('simulator');
+  const [activeTab, setActiveTab] = useState<'upload' | 'catalog' | 'simulator' | 'prelists'>('simulator');
   
   // Upload States
   const [marketName, setMarketName] = useState('');
@@ -798,6 +808,19 @@ export default function App() {
   });
   const [customItemInput, setCustomItemInput] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [clientNameInput, setClientNameInput] = useState('');
+  const [preListNameInput, setPreListNameInput] = useState('');
+  const [clientPreLists, setClientPreLists] = useState<ClientPreList[]>(() => {
+    const saved = localStorage.getItem('client_pre_lists');
+    if (!saved) return [];
+
+    try {
+      return JSON.parse(saved) as ClientPreList[];
+    } catch {
+      localStorage.removeItem('client_pre_lists');
+      return [];
+    }
+  });
   
   // Save data to localStorage
   useEffect(() => {
@@ -828,6 +851,10 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('selected_offer_ids', JSON.stringify(selectedOfferIds));
   }, [selectedOfferIds]);
+
+  useEffect(() => {
+    localStorage.setItem('client_pre_lists', JSON.stringify(clientPreLists));
+  }, [clientPreLists]);
 
   useEffect(() => {
     localStorage.setItem('gemini_api_key', apiKey);
@@ -1283,7 +1310,7 @@ export default function App() {
     window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank');
   };
 
-  const openPrintableReport = (title: string, bodyHtml: string) => {
+  const openPrintableReport = (title: string, bodyHtml: string, city = selectedCity, subtitle?: string) => {
     const pdfFileName = getPricesPdfFileName();
     const reportWindow = window.open('', '_blank');
     if (!reportWindow) {
@@ -1307,7 +1334,10 @@ export default function App() {
             .box { border: 1px solid #d1d5db; padding: 8px; border-radius: 6px; }
             .label { font-size: 10px; color: #6b7280; text-transform: uppercase; }
             .value { font-size: 16px; font-weight: 700; margin-top: 3px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; page-break-inside: avoid; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; break-inside: auto; page-break-inside: auto; }
+            thead { display: table-header-group; }
+            tfoot { display: table-footer-group; }
+            tr { break-inside: avoid; page-break-inside: avoid; }
             th, td { border: 1px solid #d1d5db; padding: 6px 7px; font-size: 10px; text-align: left; }
             th { background: #f3f4f6; font-weight: 700; }
             td.money, th.money { text-align: right; white-space: nowrap; }
@@ -1316,7 +1346,10 @@ export default function App() {
         </head>
         <body>
           <h1>${title}</h1>
-          <div class="meta">Gerado em ${new Date().toLocaleDateString('pt-BR')} - Cidade: ${selectedCity}</div>
+          <div class="meta">
+            Gerado em ${new Date().toLocaleDateString('pt-BR')} - Cidade: ${city}
+            ${subtitle ? `<br>${subtitle}` : ''}
+          </div>
           ${bodyHtml}
           <script>window.onload = () => window.print();</script>
         </body>
@@ -1379,20 +1412,28 @@ export default function App() {
     openPrintableReport('Compra por Mercado', bodyHtml);
   };
 
-  const exportBestPurchasePdf = () => {
-    if (shoppingList.length === 0) {
+  const exportBestPurchasePdf = (
+    list = shoppingList,
+    city = selectedCity,
+    title = 'Melhores Precos e Melhor Compra',
+    subtitle?: string
+  ) => {
+    if (list.length === 0) {
       alert('Adicione itens na lista de compras antes de gerar o PDF.');
       return;
     }
 
-    const bestSingleMarket = bestAllInOne;
+    const comparison = list === shoppingList && city === selectedCity
+      ? currentComparison
+      : calculatePurchaseComparison(list, city);
+    const bestSingleMarket = comparison.bestAllInOne;
     const savings = bestSingleMarket && bestSingleMarket.total > 0
-      ? Math.max(0, bestSingleMarket.total - optimizedTotal)
+      ? Math.max(0, bestSingleMarket.total - comparison.optimizedTotal)
       : 0;
     const savingsPercent = bestSingleMarket && bestSingleMarket.total > 0
       ? (savings / bestSingleMarket.total) * 100
       : 0;
-    const groupedOptimizedItems = optimizedItems.reduce<Record<string, OptimizedItem[]>>((acc, item) => {
+    const groupedOptimizedItems = comparison.optimizedItems.reduce<Record<string, OptimizedItem[]>>((acc, item) => {
       const market = item.market || 'Não encontrado';
       acc[market] = acc[market] || [];
       acc[market].push(item);
@@ -1447,7 +1488,7 @@ export default function App() {
       <div class="summary">
         <div class="box">
           <div class="label">Melhor compra dividida</div>
-          <div class="value">R$ ${optimizedTotal.toFixed(2).replace('.', ',')}</div>
+          <div class="value">R$ ${comparison.optimizedTotal.toFixed(2).replace('.', ',')}</div>
         </div>
         <div class="box">
           <div class="label">Melhor mercado unico</div>
@@ -1464,7 +1505,83 @@ export default function App() {
       </div>
     `;
 
-    openPrintableReport('Melhores Precos e Melhor Compra', bodyHtml);
+    openPrintableReport(title, bodyHtml, city, subtitle);
+  };
+
+  const saveCurrentClientPreList = () => {
+    const clientName = clientNameInput.trim();
+    const listName = preListNameInput.trim() || 'Pré-lista principal';
+
+    if (!clientName) {
+      alert('Informe o nome do cliente para cadastrar a pré-lista.');
+      return;
+    }
+
+    if (shoppingList.length === 0) {
+      alert('Adicione itens na lista de compras antes de salvar a pré-lista.');
+      return;
+    }
+
+    const now = new Date().toISOString();
+    const normalizedItems = shoppingList.map((item, index) => ({
+      ...item,
+      id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`
+    }));
+
+    setClientPreLists(prev => {
+      const existingIndex = prev.findIndex(list =>
+        normalizeSearchText(list.clientName) === normalizeSearchText(clientName) &&
+        normalizeSearchText(list.listName) === normalizeSearchText(listName)
+      );
+
+      const nextList: ClientPreList = {
+        id: existingIndex > -1 ? prev[existingIndex].id : String(Date.now()),
+        clientName,
+        listName,
+        city: selectedCity,
+        items: normalizedItems,
+        createdAt: existingIndex > -1 ? prev[existingIndex].createdAt : now,
+        updatedAt: now
+      };
+
+      if (existingIndex > -1) {
+        const next = [...prev];
+        next[existingIndex] = nextList;
+        return next;
+      }
+
+      return [nextList, ...prev];
+    });
+
+    setClientNameInput('');
+    setPreListNameInput('');
+    setActiveTab('prelists');
+  };
+
+  const loadClientPreList = (preList: ClientPreList) => {
+    setSelectedCity(preList.city);
+    setShoppingList(preList.items.map((item, index) => ({
+      ...item,
+      id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`
+    })));
+    setSelectedOfferIds({});
+    setClientNameInput(preList.clientName);
+    setPreListNameInput(preList.listName);
+    setActiveTab('simulator');
+  };
+
+  const deleteClientPreList = (id: string) => {
+    if (!window.confirm('Deseja excluir esta pré-lista do cliente?')) return;
+    setClientPreLists(prev => prev.filter(preList => preList.id !== id));
+  };
+
+  const exportClientPreListPdf = (preList: ClientPreList) => {
+    exportBestPurchasePdf(
+      preList.items,
+      preList.city,
+      'Melhores Precos para Cliente',
+      `Cliente: ${preList.clientName} - Pré-lista: ${preList.listName}`
+    );
   };
 
   // Add Item to Shopping List
@@ -1533,9 +1650,12 @@ export default function App() {
     return rankedMatches[0]?.product;
   };
 
-  const getItemOfferOptions = (itemName: string) => cityMarkets
+  const getMarketsForCity = (city: string) =>
+    Array.from(new Set(products.filter(p => city === 'Todas' || p.city === city).map(p => p.market)));
+
+  const getItemOfferOptionsForCity = (itemName: string, city: string) => getMarketsForCity(city)
     .map(market => {
-      const offer = findProductOffer(itemName, market, selectedCity);
+      const offer = findProductOffer(itemName, market, city);
       return offer ? { offer, market } : null;
     })
     .filter(Boolean)
@@ -1545,100 +1665,121 @@ export default function App() {
       return a.market.localeCompare(b.market, 'pt-BR');
     }) as { offer: Product, market: string }[];
 
-  // CALCULATE COMPARISONS FOR THE SELECTED CITY
+  const getItemOfferOptions = (itemName: string) => getItemOfferOptionsForCity(itemName, selectedCity);
 
-  // 1. All-in-One comparisons (within selectedCity)
-  const cityMarkets = Array.from(new Set(products.filter(p => selectedCity === 'Todas' || p.city === selectedCity).map(p => p.market)));
-  
-  const allInOneComparisons: MarketComparison[] = cityMarkets.map(market => {
-    let total = 0;
-    let availableCount = 0;
-    let missingCount = 0;
+  const calculatePurchaseComparison = (
+    itemsToCompare: ShoppingItem[],
+    city: string,
+    offerIds: Record<string, string> = {}
+  ) => {
+    const marketsForCity = getMarketsForCity(city);
+    const marketComparisons: MarketComparison[] = marketsForCity.map(market => {
+      let total = 0;
+      let availableCount = 0;
+      let missingCount = 0;
 
-    const items = shoppingList.map(item => {
-      const offer = findProductOffer(item.name, market, selectedCity);
-      const found = !!offer;
-      const price = offer ? offer.price : 0;
-      const subtotal = price * item.quantity;
-      
-      if (found) {
-        total += subtotal;
-        availableCount++;
-      } else {
-        missingCount++;
-      }
+      const items = itemsToCompare.map(item => {
+        const offer = findProductOffer(item.name, market, city);
+        const found = !!offer;
+        const price = offer ? offer.price : 0;
+        const subtotal = price * item.quantity;
+        
+        if (found) {
+          total += subtotal;
+          availableCount++;
+        } else {
+          missingCount++;
+        }
+
+        return {
+          itemName: item.name,
+          catalogName: offer?.name,
+          price,
+          found,
+          quantity: item.quantity,
+          subtotal
+        };
+      });
 
       return {
-        itemName: item.name,
-        catalogName: offer?.name,
-        price,
-        found,
-        quantity: item.quantity,
-        subtotal
+        marketName: market,
+        total,
+        availableCount,
+        missingCount,
+        items
       };
     });
 
+    const sortedMarketComparisons = [...marketComparisons].sort((a, b) => {
+      if (a.missingCount !== b.missingCount) {
+        return a.missingCount - b.missingCount;
+      }
+      return a.total - b.total;
+    });
+
+    const splitItems: OptimizedItem[] = [];
+    let splitTotal = 0;
+    let missingCount = 0;
+
+    itemsToCompare.forEach(item => {
+      const offers = getItemOfferOptionsForCity(item.name, city);
+
+      if (offers.length > 0) {
+        const cheapest = offers.reduce((prev, curr) => curr.offer.price < prev.offer.price ? curr : prev);
+        const selectedOfferId = offerIds[item.id];
+        const selectedOffer = selectedOfferId
+          ? offers.find(({ offer }) => offer.id === selectedOfferId)
+          : undefined;
+        const chosen = selectedOffer || cheapest;
+        const subtotal = chosen.offer.price * item.quantity;
+        splitTotal += subtotal;
+        splitItems.push({
+          shoppingItemId: item.id,
+          offerId: chosen.offer.id,
+          name: item.name,
+          catalogName: chosen.offer.name,
+          quantity: item.quantity,
+          price: chosen.offer.price,
+          market: chosen.market,
+          subtotal,
+          city,
+          endDate: chosen.offer.endDate,
+          selectedManually: !!selectedOffer
+        });
+      } else {
+        missingCount++;
+        splitItems.push({
+          shoppingItemId: item.id,
+          name: item.name,
+          quantity: item.quantity,
+          price: 0,
+          market: 'Não encontrado',
+          subtotal: 0,
+          city
+        });
+      }
+    });
+
+    const bestSingleMarket = sortedMarketComparisons.find(m => m.missingCount === 0) || sortedMarketComparisons[0];
+
     return {
-      marketName: market,
-      total,
-      availableCount,
-      missingCount,
-      items
+      cityMarkets: marketsForCity,
+      allInOneComparisons: marketComparisons,
+      optimizedItems: splitItems,
+      optimizedTotal: splitTotal,
+      optimizedMissingCount: missingCount,
+      bestAllInOne: bestSingleMarket
     };
-  });
+  };
 
-  const sortedAllInOne = [...allInOneComparisons].sort((a, b) => {
-    if (a.missingCount !== b.missingCount) {
-      return a.missingCount - b.missingCount;
-    }
-    return a.total - b.total;
-  });
-
-  // 2. Split Optimized Comparison
-  const optimizedItems: OptimizedItem[] = [];
-  let optimizedTotal = 0;
-  let optimizedMissingCount = 0;
-
-  shoppingList.forEach(item => {
-    const offers = getItemOfferOptions(item.name);
-
-    if (offers.length > 0) {
-      const cheapest = offers.reduce((prev, curr) => curr.offer.price < prev.offer.price ? curr : prev);
-      const selectedOfferId = selectedOfferIds[item.id];
-      const selectedOffer = selectedOfferId
-        ? offers.find(({ offer }) => offer.id === selectedOfferId)
-        : undefined;
-      const chosen = selectedOffer || cheapest;
-      const subtotal = chosen.offer.price * item.quantity;
-      optimizedTotal += subtotal;
-      optimizedItems.push({
-        shoppingItemId: item.id,
-        offerId: chosen.offer.id,
-        name: item.name,
-        catalogName: chosen.offer.name,
-        quantity: item.quantity,
-        price: chosen.offer.price,
-        market: chosen.market,
-        subtotal,
-        city: selectedCity,
-        endDate: chosen.offer.endDate,
-        selectedManually: !!selectedOffer
-      });
-    } else {
-      optimizedMissingCount++;
-      optimizedItems.push({
-        shoppingItemId: item.id,
-        name: item.name,
-        quantity: item.quantity,
-        price: 0,
-        market: 'Não encontrado',
-        subtotal: 0,
-        city: selectedCity
-      });
-    }
-  });
-
-  const bestAllInOne = sortedAllInOne.find(m => m.missingCount === 0) || sortedAllInOne[0];
+  // CALCULATE COMPARISONS FOR THE SELECTED CITY
+  const currentComparison = calculatePurchaseComparison(shoppingList, selectedCity, selectedOfferIds);
+  const cityMarkets = currentComparison.cityMarkets;
+  const allInOneComparisons = currentComparison.allInOneComparisons;
+  const optimizedItems = currentComparison.optimizedItems;
+  const optimizedTotal = currentComparison.optimizedTotal;
+  const optimizedMissingCount = currentComparison.optimizedMissingCount;
+  const bestAllInOne = currentComparison.bestAllInOne;
   const potentialSavings = bestAllInOne && bestAllInOne.total > 0 ? (bestAllInOne.total - optimizedTotal) : 0;
 
   // Filter Catalog
@@ -1726,7 +1867,10 @@ export default function App() {
             h1 { font-size: 20px; margin: 0 0 6px; }
             h2 { font-size: 15px; margin: 18px 0 8px; color: #111827; }
             .meta { font-size: 11px; color: #4b5563; margin-bottom: 16px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; page-break-inside: avoid; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; break-inside: auto; page-break-inside: auto; }
+            thead { display: table-header-group; }
+            tfoot { display: table-footer-group; }
+            tr { break-inside: avoid; page-break-inside: avoid; }
             th, td { border: 1px solid #d1d5db; padding: 6px 7px; font-size: 10px; text-align: left; }
             th { background: #f3f4f6; font-weight: 700; }
             td:nth-child(4), th:nth-child(4) { text-align: right; white-space: nowrap; }
@@ -1951,6 +2095,13 @@ export default function App() {
         >
           <Filter size={18} />
           Catálogo ({products.length})
+        </button>
+        <button 
+          className={`tab-btn ${activeTab === 'prelists' ? 'active' : ''}`}
+          onClick={() => setActiveTab('prelists')}
+        >
+          <FileTextIcon size={18} />
+          Pré-listas ({clientPreLists.length})
         </button>
         <button 
           className={`tab-btn ${activeTab === 'upload' ? 'active' : ''}`}
@@ -2501,6 +2652,98 @@ export default function App() {
         </div>
       )}
 
+      {activeTab === 'prelists' && (
+        <div className="glass-panel">
+          <div className="flex-between prelist-header">
+            <div>
+              <h2 className="product-name" style={{ fontSize: '1.4rem', marginBottom: '0.35rem' }}>Pré-listas por Cliente</h2>
+              <p className="text-secondary-color" style={{ fontSize: '0.85rem' }}>
+                Cadastre listas recorrentes por cliente e gere o PDF com os melhores preços quando precisar.
+              </p>
+            </div>
+            <button
+              className="btn-primary"
+              onClick={() => setActiveTab('simulator')}
+            >
+              <Plus size={16} /> Nova pré-lista
+            </button>
+          </div>
+
+          {clientPreLists.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-secondary)' }}>
+              <FileTextIcon size={40} style={{ opacity: 0.35, marginBottom: '0.5rem' }} />
+              <p>Nenhuma pré-lista cadastrada.</p>
+              <p style={{ fontSize: '0.75rem' }}>Monte uma lista no simulador e salve para um cliente.</p>
+            </div>
+          ) : (
+            <div className="prelist-grid">
+              {clientPreLists.map(preList => {
+                const comparison = calculatePurchaseComparison(preList.items, preList.city);
+                const updatedAt = new Date(preList.updatedAt).toLocaleDateString('pt-BR');
+
+                return (
+                  <div key={preList.id} className="prelist-card">
+                    <div className="prelist-card-top">
+                      <div>
+                        <div className="product-category-badge">{preList.city}</div>
+                        <h3 className="product-name" style={{ marginBottom: '0.3rem' }}>{preList.clientName}</h3>
+                        <p className="text-secondary-color" style={{ fontSize: '0.82rem' }}>{preList.listName}</p>
+                      </div>
+                      <button
+                        className="btn-icon text-danger"
+                        title="Excluir pré-lista"
+                        onClick={() => deleteClientPreList(preList.id)}
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+
+                    <div className="prelist-summary">
+                      <div>
+                        <span className="metric-label">Itens</span>
+                        <strong>{preList.items.length}</strong>
+                      </div>
+                      <div>
+                        <span className="metric-label">Melhores preços</span>
+                        <strong className="text-success">R$ {comparison.optimizedTotal.toFixed(2)}</strong>
+                      </div>
+                      <div>
+                        <span className="metric-label">Atualizada</span>
+                        <strong>{updatedAt}</strong>
+                      </div>
+                    </div>
+
+                    <div className="prelist-items-preview">
+                      {preList.items.slice(0, 4).map(item => (
+                        <span key={item.id}>{item.quantity}x {item.name}</span>
+                      ))}
+                      {preList.items.length > 4 && (
+                        <span>+ {preList.items.length - 4} item(ns)</span>
+                      )}
+                    </div>
+
+                    <div className="prelist-actions">
+                      <button
+                        className="btn-secondary"
+                        onClick={() => loadClientPreList(preList)}
+                      >
+                        <ShoppingCart size={16} /> Carregar
+                      </button>
+                      <button
+                        className="btn-primary"
+                        onClick={() => exportClientPreListPdf(preList)}
+                      >
+                        <TrendingDown size={16} /> PDF melhores preços
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {activeTab === 'simulator' && (
         <div className="simulator-layout">
           {/* Left panel: Build shopping list */}
@@ -2565,6 +2808,36 @@ export default function App() {
                     + {sugg}
                   </button>
                 ))}
+              </div>
+            </div>
+
+            <div className="client-prelist-box">
+              <p style={{ fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.65rem' }}>
+                Cadastrar pré-lista para cliente
+              </p>
+              <div className="client-prelist-form">
+                <input
+                  type="text"
+                  name="client-name"
+                  placeholder="Nome do cliente"
+                  value={clientNameInput}
+                  onChange={(e) => setClientNameInput(e.target.value)}
+                  className="input-glow"
+                />
+                <input
+                  type="text"
+                  name="prelist-name"
+                  placeholder="Nome da pré-lista (opcional)"
+                  value={preListNameInput}
+                  onChange={(e) => setPreListNameInput(e.target.value)}
+                  className="input-glow"
+                />
+                <button
+                  className="btn-primary"
+                  onClick={saveCurrentClientPreList}
+                >
+                  <Plus size={16} /> Salvar
+                </button>
               </div>
             </div>
 
@@ -2696,7 +2969,7 @@ export default function App() {
                   </button>
                   <button
                     className="btn-secondary"
-                    onClick={exportBestPurchasePdf}
+                    onClick={() => exportBestPurchasePdf()}
                     style={{ justifyContent: 'center', fontWeight: '700' }}
                   >
                     <TrendingDown size={16} /> PDF Melhores Preços
