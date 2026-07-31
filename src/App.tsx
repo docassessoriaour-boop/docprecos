@@ -854,6 +854,7 @@ export default function App() {
   const [clientNameInput, setClientNameInput] = useState('');
   const [preListNameInput, setPreListNameInput] = useState('');
   const [editingPreListId, setEditingPreListId] = useState<string | null>(null);
+  const [preListSaveStatus, setPreListSaveStatus] = useState('');
   const [clientPreLists, setClientPreLists] = useState<ClientPreList[]>(() => {
     const saved = localStorage.getItem('client_pre_lists');
     const recoveryApplied = localStorage.getItem('client_pre_lists_recovery_applied') === 'true';
@@ -907,6 +908,12 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('shopping_list', JSON.stringify(shoppingList));
   }, [shoppingList]);
+
+  useEffect(() => {
+    if (editingPreListId) {
+      setPreListSaveStatus('');
+    }
+  }, [shoppingList, clientNameInput, preListNameInput, selectedCity, editingPreListId]);
 
   useEffect(() => {
     localStorage.setItem('selected_offer_ids', JSON.stringify(selectedOfferIds));
@@ -1583,7 +1590,7 @@ export default function App() {
     openPrintableReport(title, bodyHtml, city, subtitle);
   };
 
-  const saveCurrentClientPreList = () => {
+  const saveCurrentClientPreList = (stayOnSimulator = false) => {
     const clientName = clientNameInput.trim();
     const listName = preListNameInput.trim() || 'Pré-lista principal';
 
@@ -1598,6 +1605,7 @@ export default function App() {
     }
 
     const now = new Date().toISOString();
+    let savedPreListId = editingPreListId || String(Date.now());
     const normalizedItems = shoppingList.map((item, index) => ({
       ...item,
       id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`
@@ -1614,7 +1622,7 @@ export default function App() {
       const existingIndex = editingIndex > -1 ? editingIndex : sameNameIndex;
 
       const nextList: ClientPreList = {
-        id: existingIndex > -1 ? prev[existingIndex].id : String(Date.now()),
+        id: existingIndex > -1 ? prev[existingIndex].id : savedPreListId,
         clientName,
         listName,
         city: selectedCity,
@@ -1622,6 +1630,8 @@ export default function App() {
         createdAt: existingIndex > -1 ? prev[existingIndex].createdAt : now,
         updatedAt: now
       };
+
+      savedPreListId = nextList.id;
 
       if (existingIndex > -1) {
         const next = [...prev];
@@ -1631,6 +1641,13 @@ export default function App() {
 
       return [nextList, ...prev];
     });
+
+    setPreListSaveStatus(`Pré-lista salva em ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}.`);
+
+    if (stayOnSimulator) {
+      setEditingPreListId(savedPreListId);
+      return;
+    }
 
     setClientNameInput('');
     setPreListNameInput('');
@@ -1648,6 +1665,7 @@ export default function App() {
     setClientNameInput(preList.clientName);
     setPreListNameInput(preList.listName);
     setEditingPreListId(null);
+    setPreListSaveStatus('');
     setActiveTab('simulator');
   };
 
@@ -1661,6 +1679,7 @@ export default function App() {
     setClientNameInput(preList.clientName);
     setPreListNameInput(preList.listName);
     setEditingPreListId(preList.id);
+    setPreListSaveStatus('');
     setActiveTab('simulator');
   };
 
@@ -2937,12 +2956,17 @@ export default function App() {
                 />
                 <button
                   className="btn-primary"
-                  onClick={saveCurrentClientPreList}
+                  onClick={() => saveCurrentClientPreList()}
                 >
                   {editingPreListId ? <CheckCircle size={16} /> : <Plus size={16} />}
                   {editingPreListId ? 'Atualizar' : 'Salvar'}
                 </button>
               </div>
+              {preListSaveStatus && (
+                <p className="text-success" style={{ fontSize: '0.78rem', marginTop: '0.55rem', fontWeight: '700' }}>
+                  {preListSaveStatus}
+                </p>
+              )}
               {editingPreListId && (
                 <button
                   className="btn-secondary"
@@ -2951,6 +2975,7 @@ export default function App() {
                     setEditingPreListId(null);
                     setClientNameInput('');
                     setPreListNameInput('');
+                    setPreListSaveStatus('');
                   }}
                 >
                   Cancelar edição
@@ -3015,7 +3040,15 @@ export default function App() {
                   </button>
                 </div>
 
-                <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end' }}>
+                <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', flexWrap: 'wrap' }}>
+                  {editingPreListId && (
+                    <button
+                      className="btn-primary"
+                      onClick={() => saveCurrentClientPreList(true)}
+                    >
+                      <CheckCircle size={16} /> Salvar edição da pré-lista
+                    </button>
+                  )}
                   <button className="btn-secondary" style={{ color: 'var(--accent-danger)' }} onClick={clearShoppingList}>
                     Limpar Lista
                   </button>
