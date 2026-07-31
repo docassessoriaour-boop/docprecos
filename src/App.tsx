@@ -321,7 +321,21 @@ const formatPackageAmount = (amount: number) =>
 const getProductPackageInfo = (value: string): ProductPackageInfo | null => {
   const text = normalizeSearchText(value);
   const packageMatch = text.match(/(?:^|\s)(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|g|gr|gramas|l|lt|litro|litros|ml|un|und|unid|unidade|unidades)(?:\s|$)/);
-  if (!packageMatch) return null;
+  if (!packageMatch) {
+    const standaloneUnitMatch = text.match(/(?:^|\s)(kg|quilo|quilos|l|lt|litro|litros|un|und|unid|unidade|unidades)(?:\s|$)/);
+    if (!standaloneUnitMatch) return null;
+
+    const rawStandaloneUnit = standaloneUnitMatch[1];
+    if (['kg', 'quilo', 'quilos'].includes(rawStandaloneUnit)) {
+      return { kind: 'weight', amount: 1, unit: 'kg', normalizedAmount: 1000, label: '1kg' };
+    }
+
+    if (['l', 'lt', 'litro', 'litros'].includes(rawStandaloneUnit)) {
+      return { kind: 'volume', amount: 1, unit: 'l', normalizedAmount: 1000, label: '1L' };
+    }
+
+    return { kind: 'count', amount: 1, unit: 'un', normalizedAmount: 1, label: '1un' };
+  }
 
   const amount = parseDecimalNumber(packageMatch[1]);
   const rawUnit = packageMatch[2];
