@@ -1590,6 +1590,89 @@ export default function App() {
     openPrintableReport(title, bodyHtml, city, subtitle);
   };
 
+  const exportAllFoundPricesPdf = (
+    list = shoppingList,
+    city = selectedCity,
+    title = 'Produtos Encontrados para Escolha Manual',
+    subtitle?: string
+  ) => {
+    if (list.length === 0) {
+      alert('Adicione itens na lista de compras antes de gerar o PDF.');
+      return;
+    }
+
+    const itemsWithOffers = [...list]
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+      .map(item => ({
+        item,
+        offers: getAllOfferOptionsForItem(item.name, city)
+      }));
+
+    const foundOffersCount = itemsWithOffers.reduce((total, item) => total + item.offers.length, 0);
+    const missingItemsCount = itemsWithOffers.filter(item => item.offers.length === 0).length;
+
+    const bodyHtml = `
+      <div class="summary">
+        <div class="box">
+          <div class="label">Itens da lista</div>
+          <div class="value">${list.length}</div>
+        </div>
+        <div class="box">
+          <div class="label">Preços encontrados</div>
+          <div class="value">${foundOffersCount}</div>
+        </div>
+        <div class="box">
+          <div class="label">Itens sem preço</div>
+          <div class="value">${missingItemsCount}</div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Produto da lista</th>
+            <th>Produto encontrado</th>
+            <th>Marca</th>
+            <th>Mercado</th>
+            <th class="money">Qtd</th>
+            <th class="money">Preço unit.</th>
+            <th class="money">Subtotal</th>
+            <th>Validade</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itemsWithOffers.map(({ item, offers }) => {
+            if (offers.length === 0) {
+              return `
+                <tr>
+                  <td>${item.name}</td>
+                  <td colspan="7"><span class="missing">Nenhum preço encontrado</span></td>
+                </tr>
+              `;
+            }
+
+            return offers.map((offer, offerIndex) => `
+              <tr>
+                <td>${offerIndex === 0 ? item.name : ''}</td>
+                <td>${offer.name}</td>
+                <td>${getLikelyBrand(offer.name)}</td>
+                <td>${offer.market}</td>
+                <td class="money">${item.quantity}</td>
+                <td class="money">R$ ${offer.price.toFixed(2).replace('.', ',')}</td>
+                <td class="money">R$ ${(offer.price * item.quantity).toFixed(2).replace('.', ',')}</td>
+                <td>${formatPromotionDate(offer.endDate)}</td>
+              </tr>
+            `).join('');
+          }).join('')}
+        </tbody>
+      </table>
+      <div class="note">
+        Produtos em ordem alfabetica. Para cada produto, os preços encontrados aparecem do menor para o maior para facilitar a escolha manual.
+      </div>
+    `;
+
+    openPrintableReport(title, bodyHtml, city, subtitle);
+  };
+
   const saveCurrentClientPreList = (stayOnSimulator = false) => {
     const clientName = clientNameInput.trim();
     const listName = preListNameInput.trim() || 'Pré-lista principal';
@@ -1697,6 +1780,15 @@ export default function App() {
     );
   };
 
+  const exportClientPreListAllPricesPdf = (preList: ClientPreList) => {
+    exportAllFoundPricesPdf(
+      preList.items,
+      preList.city,
+      'Todos os Precos Encontrados',
+      `Cliente: ${preList.clientName} - Pré-lista: ${preList.listName}`
+    );
+  };
+
   // Add Item to Shopping List
   const addToShoppingList = (name: string) => {
     if (!name.trim()) return;
@@ -1777,6 +1869,26 @@ export default function App() {
       if (a.offer.price !== b.offer.price) return a.offer.price - b.offer.price;
       return a.market.localeCompare(b.market, 'pt-BR');
     }) as { offer: Product, market: string }[];
+
+  const getAllOfferOptionsForItem = (itemName: string, city: string) => {
+    const seenOfferIds = new Set<string>();
+
+    return products
+      .filter(product => city === 'Todas' || product.city === city)
+      .filter(product => !isDateExpired(product.endDate))
+      .map(product => ({ product, score: getProductMatchScore(itemName, product) }))
+      .filter(({ product, score }) => {
+        if (score < 0.45 || seenOfferIds.has(product.id)) return false;
+        seenOfferIds.add(product.id);
+        return true;
+      })
+      .sort((a, b) => {
+        if (a.product.price !== b.product.price) return a.product.price - b.product.price;
+        return a.product.market.localeCompare(b.product.market, 'pt-BR') ||
+          a.product.name.localeCompare(b.product.name, 'pt-BR');
+      })
+      .map(({ product }) => product);
+  };
 
   const getItemOfferOptions = (itemName: string) => getItemOfferOptionsForCity(itemName, selectedCity);
 
@@ -2856,6 +2968,12 @@ export default function App() {
                         onClick={() => exportClientPreListPdf(preList)}
                       >
                         <TrendingDown size={16} /> PDF melhores preços
+                      </button>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => exportClientPreListAllPricesPdf(preList)}
+                      >
+                        <FileTextIcon size={16} /> PDF todos preços
                       </button>
                     </div>
                   </div>
