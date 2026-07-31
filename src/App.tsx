@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   Upload, 
   Trash2, 
@@ -849,6 +849,7 @@ export default function App() {
     return saved ? JSON.parse(saved) : {};
   });
   const [customItemInput, setCustomItemInput] = useState('');
+  const [debouncedCustomItemInput, setDebouncedCustomItemInput] = useState('');
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [clientNameInput, setClientNameInput] = useState('');
   const [preListNameInput, setPreListNameInput] = useState('');
@@ -1023,25 +1024,40 @@ export default function App() {
   }, []);
 
   // Unique lists for filtering dropdowns
-  const markets = Array.from(new Set(products.map(p => p.market)));
-  const cities = Array.from(new Set(products.map(p => p.city)));
-  const categories = ['Todas', ...Array.from(new Set(products.map(p => p.category)))];
-  const productGroups = ['Todos', ...Array.from(new Set(products.map(p => getProductGroup(p.name, p.unit)))).sort((a, b) => a.localeCompare(b, 'pt-BR'))];
+  const markets = useMemo(() => Array.from(new Set(products.map(p => p.market))), [products]);
+  const cities = useMemo(() => Array.from(new Set(products.map(p => p.city))), [products]);
+  const categories = useMemo(() => ['Todas', ...Array.from(new Set(products.map(p => p.category)))], [products]);
+  const productGroups = useMemo(
+    () => ['Todos', ...Array.from(new Set(products.map(p => getProductGroup(p.name, p.unit)))).sort((a, b) => a.localeCompare(b, 'pt-BR'))],
+    [products]
+  );
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedCustomItemInput(customItemInput);
+    }, 180);
+
+    return () => window.clearTimeout(timeout);
+  }, [customItemInput]);
 
   // Suggestions for autocomplete
   useEffect(() => {
-    if (!customItemInput.trim()) {
+    const query = debouncedCustomItemInput.trim();
+    if (!query) {
       setSuggestions([]);
       return;
     }
+
     const matches = Array.from(new Set(
       products
-        .filter(p => (selectedCity === 'Todas' || p.city === selectedCity) && getProductMatchScore(customItemInput, p) >= 0.45)
-        .sort((a, b) => getProductMatchScore(customItemInput, b) - getProductMatchScore(customItemInput, a))
-        .map(p => p.name)
+        .filter(p => selectedCity === 'Todas' || p.city === selectedCity)
+        .map(product => ({ product, score: getProductMatchScore(query, product) }))
+        .filter(({ score }) => score >= 0.45)
+        .sort((a, b) => b.score - a.score)
+        .map(({ product }) => product.name)
     )).slice(0, 8);
     setSuggestions(matches);
-  }, [customItemInput, products, selectedCity]);
+  }, [debouncedCustomItemInput, products, selectedCity]);
 
   // Validate dates (checking if expired based on current date)
   const getValidityStatus = (endDateStr?: string) => {
@@ -1851,7 +1867,10 @@ export default function App() {
   };
 
   // CALCULATE COMPARISONS FOR THE SELECTED CITY
-  const currentComparison = calculatePurchaseComparison(shoppingList, selectedCity, selectedOfferIds);
+  const currentComparison = useMemo(
+    () => calculatePurchaseComparison(shoppingList, selectedCity, selectedOfferIds),
+    [shoppingList, selectedCity, selectedOfferIds, products]
+  );
   const cityMarkets = currentComparison.cityMarkets;
   const allInOneComparisons = currentComparison.allInOneComparisons;
   const optimizedItems = currentComparison.optimizedItems;
@@ -1861,23 +1880,23 @@ export default function App() {
   const potentialSavings = bestAllInOne && bestAllInOne.total > 0 ? (bestAllInOne.total - optimizedTotal) : 0;
 
   // Filter Catalog
-  const filteredProducts = products.filter(p => {
+  const filteredProducts = useMemo(() => products.filter(p => {
     const matchesSearch = !searchTerm.trim() || getProductMatchScore(searchTerm, p) >= 0.45;
     const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
     const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name, p.unit) === selectedProductGroup;
     const matchesMarket = selectedMarket === 'Todos' || p.market === selectedMarket;
     const matchesCity = selectedCity === 'Todas' || p.city === selectedCity;
     return matchesSearch && matchesCategory && matchesProductGroup && matchesMarket && matchesCity;
-  });
+  }), [products, searchTerm, selectedCategory, selectedProductGroup, selectedMarket, selectedCity]);
 
-  const productsMatchingFiltersWithoutExpiry = products.filter(p => {
+  const productsMatchingFiltersWithoutExpiry = useMemo(() => products.filter(p => {
     const matchesSearch = !searchTerm.trim() || getProductMatchScore(searchTerm, p) >= 0.45;
     const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
     const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name, p.unit) === selectedProductGroup;
     const matchesMarket = selectedMarket === 'Todos' || p.market === selectedMarket;
     const matchesCity = selectedCity === 'Todas' || p.city === selectedCity;
     return matchesSearch && matchesCategory && matchesProductGroup && matchesMarket && matchesCity;
-  });
+  }), [products, searchTerm, selectedCategory, selectedProductGroup, selectedMarket, selectedCity]);
 
   const exportProductsPdf = () => {
     const sourceProducts = productsMatchingFiltersWithoutExpiry.length > 0
