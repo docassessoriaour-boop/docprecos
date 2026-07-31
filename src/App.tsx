@@ -269,6 +269,47 @@ interface ClientPreList {
   updatedAt: string;
 }
 
+const RECOVERED_CLIENT_PRE_LISTS: ClientPreList[] = [
+  {
+    id: 'recovered-vovo-nena-2026-07-31',
+    clientName: 'Vovó Nena',
+    listName: 'Vovó Nena',
+    city: 'Ourinhos',
+    createdAt: '2026-07-31T18:06:28.581Z',
+    updatedAt: '2026-07-31T18:06:28.581Z',
+    items: [
+      { id: 'recovered-vovo-nena-0', name: 'Alho', quantity: 1 },
+      { id: 'recovered-vovo-nena-1', name: 'Vinagre', quantity: 1 },
+      { id: 'recovered-vovo-nena-2', name: 'Amido de Milho', quantity: 1 },
+      { id: 'recovered-vovo-nena-3', name: 'Feijão Carioca', quantity: 1 },
+      { id: 'recovered-vovo-nena-4', name: 'Sardinha', quantity: 1 },
+      { id: 'recovered-vovo-nena-5', name: 'Farinha de Trigo', quantity: 1 },
+      { id: 'recovered-vovo-nena-6', name: 'Macarrão Espaguete', quantity: 1 },
+      { id: 'recovered-vovo-nena-7', name: 'Macarrão Parafuso', quantity: 1 },
+      { id: 'recovered-vovo-nena-8', name: 'Óleo de Soja', quantity: 1 },
+      { id: 'recovered-vovo-nena-9', name: 'Biscoito Maisena', quantity: 1 },
+      { id: 'recovered-vovo-nena-10', name: 'Leite UHT Integral 1L', quantity: 1 },
+      { id: 'recovered-vovo-nena-11', name: 'Tempero Knorr', quantity: 1 },
+      { id: 'recovered-vovo-nena-12', name: 'Margarina', quantity: 1 },
+      { id: 'recovered-vovo-nena-13', name: 'Creme de Leite', quantity: 1 },
+      { id: 'recovered-vovo-nena-14', name: 'Leite Condensado', quantity: 1 },
+      { id: 'recovered-vovo-nena-15', name: 'Ovo Branco', quantity: 1 },
+      { id: 'recovered-vovo-nena-16', name: 'Limpa Alumínio', quantity: 1 },
+      { id: 'recovered-vovo-nena-17', name: 'Água Sanitária', quantity: 1 },
+      { id: 'recovered-vovo-nena-18', name: 'Sabão em Pó', quantity: 1 },
+      { id: 'recovered-vovo-nena-19', name: 'Álcool', quantity: 1 },
+      { id: 'recovered-vovo-nena-20', name: 'Detergente', quantity: 1 },
+      { id: 'recovered-vovo-nena-21', name: 'Amaciante', quantity: 1 },
+      { id: 'recovered-vovo-nena-22', name: 'Limpador Multiuso', quantity: 1 },
+      { id: 'recovered-vovo-nena-23', name: 'Querosene', quantity: 1 },
+      { id: 'recovered-vovo-nena-24', name: 'Odorizador', quantity: 1 },
+      { id: 'recovered-vovo-nena-25', name: 'Sabão em Pedra', quantity: 1 },
+      { id: 'recovered-vovo-nena-26', name: 'Esponja Dupla Face', quantity: 1 },
+      { id: 'recovered-vovo-nena-27', name: 'Carne Moída', quantity: 1 }
+    ]
+  }
+];
+
 const hasNormalizedPhrase = (text: string, phrases: string[]) =>
   phrases.some(phrase => text.includes(normalizeSearchText(phrase)));
 
@@ -814,12 +855,28 @@ export default function App() {
   const [editingPreListId, setEditingPreListId] = useState<string | null>(null);
   const [clientPreLists, setClientPreLists] = useState<ClientPreList[]>(() => {
     const saved = localStorage.getItem('client_pre_lists');
+    const recoveryApplied = localStorage.getItem('client_pre_lists_recovery_applied') === 'true';
+    if (!saved && !recoveryApplied) {
+      localStorage.setItem('client_pre_lists_recovery_applied', 'true');
+      return RECOVERED_CLIENT_PRE_LISTS;
+    }
     if (!saved) return [];
 
     try {
-      return JSON.parse(saved) as ClientPreList[];
+      const parsed = JSON.parse(saved) as ClientPreList[];
+      if (parsed.length === 0 && !recoveryApplied) {
+        localStorage.setItem('client_pre_lists_recovery_applied', 'true');
+        return RECOVERED_CLIENT_PRE_LISTS;
+      }
+
+      return parsed;
     } catch {
       localStorage.removeItem('client_pre_lists');
+      if (!recoveryApplied) {
+        localStorage.setItem('client_pre_lists_recovery_applied', 'true');
+        return RECOVERED_CLIENT_PRE_LISTS;
+      }
+
       return [];
     }
   });
