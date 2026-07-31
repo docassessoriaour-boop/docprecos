@@ -700,6 +700,31 @@ const getProductMatchScore = (query: string, product: Product) => {
   return hits / queryTokens.length;
 };
 
+const getSavedListItemOfferScore = (query: string, product: Product) => {
+  const normalizedQuery = normalizeSearchText(query);
+  const normalizedName = normalizeSearchText(product.name);
+  const normalizedProductText = normalizeSearchText(`${product.name} ${product.unit}`);
+
+  if (!normalizedQuery) return 0;
+  if (isStrictProductMismatch(query, `${product.name} ${product.unit}`)) return 0;
+  if (isExcludedProductMatch(query, product.name)) return 0;
+  if (normalizedName === normalizedQuery) return 100;
+  if (normalizedName.includes(normalizedQuery)) return 90;
+  if (normalizedProductText.includes(normalizedQuery)) return 88;
+
+  const queryTokens = getSearchTokens(query);
+  if (queryTokens.length === 0) return 0;
+
+  const hits = queryTokens.filter(token => normalizedProductText.includes(token)).length;
+  const score = hits / queryTokens.length;
+
+  if (queryTokens.length <= 2) {
+    return score === 1 ? score : 0;
+  }
+
+  return score >= 0.8 ? score : 0;
+};
+
 const KNOWN_BRANDS = [
   '3 Corações', 'Adria', 'Aurora', 'Bauducco', 'Brahma', 'Camil', 'Claybom',
   'Coca-Cola', 'Colgate', 'Dove', 'Downy', 'Globo', 'Heineken', 'Ipê', 'Liza',
@@ -1666,7 +1691,7 @@ export default function App() {
         </tbody>
       </table>
       <div class="note">
-        Produtos em ordem alfabetica. Para cada produto, os preços encontrados aparecem do menor para o maior para facilitar a escolha manual.
+        Relatorio limitado aos itens da lista salva. Produtos em ordem alfabetica; para cada item, os preços correspondentes aparecem do menor para o maior para facilitar a escolha manual.
       </div>
     `;
 
@@ -1876,13 +1901,14 @@ export default function App() {
     return products
       .filter(product => city === 'Todas' || product.city === city)
       .filter(product => !isDateExpired(product.endDate))
-      .map(product => ({ product, score: getProductMatchScore(itemName, product) }))
+      .map(product => ({ product, score: getSavedListItemOfferScore(itemName, product) }))
       .filter(({ product, score }) => {
-        if (score < 0.45 || seenOfferIds.has(product.id)) return false;
+        if (score <= 0 || seenOfferIds.has(product.id)) return false;
         seenOfferIds.add(product.id);
         return true;
       })
       .sort((a, b) => {
+        if (b.score !== a.score) return b.score - a.score;
         if (a.product.price !== b.product.price) return a.product.price - b.product.price;
         return a.product.market.localeCompare(b.product.market, 'pt-BR') ||
           a.product.name.localeCompare(b.product.name, 'pt-BR');
