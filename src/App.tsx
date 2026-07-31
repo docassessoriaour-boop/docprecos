@@ -16,7 +16,8 @@ import {
   Calendar,
   Globe,
   Link as LinkIcon,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Pencil
 } from 'lucide-react';
 import type { Product, ShoppingItem, MarketComparison, OptimizedItem } from './types';
 import { extractTextFromPDF } from './utils/pdfParser';
@@ -810,6 +811,7 @@ export default function App() {
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [clientNameInput, setClientNameInput] = useState('');
   const [preListNameInput, setPreListNameInput] = useState('');
+  const [editingPreListId, setEditingPreListId] = useState<string | null>(null);
   const [clientPreLists, setClientPreLists] = useState<ClientPreList[]>(() => {
     const saved = localStorage.getItem('client_pre_lists');
     if (!saved) return [];
@@ -1529,10 +1531,14 @@ export default function App() {
     }));
 
     setClientPreLists(prev => {
-      const existingIndex = prev.findIndex(list =>
+      const editingIndex = editingPreListId
+        ? prev.findIndex(list => list.id === editingPreListId)
+        : -1;
+      const sameNameIndex = prev.findIndex(list =>
         normalizeSearchText(list.clientName) === normalizeSearchText(clientName) &&
         normalizeSearchText(list.listName) === normalizeSearchText(listName)
       );
+      const existingIndex = editingIndex > -1 ? editingIndex : sameNameIndex;
 
       const nextList: ClientPreList = {
         id: existingIndex > -1 ? prev[existingIndex].id : String(Date.now()),
@@ -1555,6 +1561,7 @@ export default function App() {
 
     setClientNameInput('');
     setPreListNameInput('');
+    setEditingPreListId(null);
     setActiveTab('prelists');
   };
 
@@ -1567,6 +1574,20 @@ export default function App() {
     setSelectedOfferIds({});
     setClientNameInput(preList.clientName);
     setPreListNameInput(preList.listName);
+    setEditingPreListId(null);
+    setActiveTab('simulator');
+  };
+
+  const editClientPreList = (preList: ClientPreList) => {
+    setSelectedCity(preList.city);
+    setShoppingList(preList.items.map((item, index) => ({
+      ...item,
+      id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`
+    })));
+    setSelectedOfferIds({});
+    setClientNameInput(preList.clientName);
+    setPreListNameInput(preList.listName);
+    setEditingPreListId(preList.id);
     setActiveTab('simulator');
   };
 
@@ -2730,6 +2751,12 @@ export default function App() {
                         <ShoppingCart size={16} /> Carregar
                       </button>
                       <button
+                        className="btn-secondary"
+                        onClick={() => editClientPreList(preList)}
+                      >
+                        <Pencil size={16} /> Editar
+                      </button>
+                      <button
                         className="btn-primary"
                         onClick={() => exportClientPreListPdf(preList)}
                       >
@@ -2813,7 +2840,7 @@ export default function App() {
 
             <div className="client-prelist-box">
               <p style={{ fontSize: '0.8rem', fontWeight: '700', marginBottom: '0.65rem' }}>
-                Cadastrar pré-lista para cliente
+                {editingPreListId ? 'Editando pré-lista do cliente' : 'Cadastrar pré-lista para cliente'}
               </p>
               <div className="client-prelist-form">
                 <input
@@ -2836,9 +2863,23 @@ export default function App() {
                   className="btn-primary"
                   onClick={saveCurrentClientPreList}
                 >
-                  <Plus size={16} /> Salvar
+                  {editingPreListId ? <CheckCircle size={16} /> : <Plus size={16} />}
+                  {editingPreListId ? 'Atualizar' : 'Salvar'}
                 </button>
               </div>
+              {editingPreListId && (
+                <button
+                  className="btn-secondary"
+                  style={{ marginTop: '0.6rem' }}
+                  onClick={() => {
+                    setEditingPreListId(null);
+                    setClientNameInput('');
+                    setPreListNameInput('');
+                  }}
+                >
+                  Cancelar edição
+                </button>
+              )}
             </div>
 
             {shoppingList.length === 0 ? (
