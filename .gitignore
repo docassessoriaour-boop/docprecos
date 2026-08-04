@@ -20,6 +20,7 @@ dist-ssr
 ENTRADA_OFERTAS/*
 Novo(a) Documento de Texto.txt
 *.inspect.ndjson
+outputs/lista-compras-vovo-nena.xlsx
 outputs/lista-vovo-nena-work/
 
 # Editor directories and files

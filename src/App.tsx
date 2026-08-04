@@ -269,46 +269,108 @@ interface ClientPreList {
   updatedAt: string;
 }
 
-const RECOVERED_CLIENT_PRE_LISTS: ClientPreList[] = [
-  {
-    id: 'recovered-vovo-nena-2026-07-31',
-    clientName: 'Vovó Nena',
-    listName: 'Vovó Nena',
-    city: 'Ourinhos',
-    createdAt: '2026-07-31T18:06:28.581Z',
-    updatedAt: '2026-07-31T18:06:28.581Z',
-    items: [
-      { id: 'recovered-vovo-nena-0', name: 'Alho', quantity: 1 },
-      { id: 'recovered-vovo-nena-1', name: 'Vinagre', quantity: 1 },
-      { id: 'recovered-vovo-nena-2', name: 'Amido de Milho', quantity: 1 },
-      { id: 'recovered-vovo-nena-3', name: 'Feijão Carioca', quantity: 1 },
-      { id: 'recovered-vovo-nena-4', name: 'Sardinha', quantity: 1 },
-      { id: 'recovered-vovo-nena-5', name: 'Farinha de Trigo', quantity: 1 },
-      { id: 'recovered-vovo-nena-6', name: 'Macarrão Espaguete', quantity: 1 },
-      { id: 'recovered-vovo-nena-7', name: 'Macarrão Parafuso', quantity: 1 },
-      { id: 'recovered-vovo-nena-8', name: 'Óleo de Soja', quantity: 1 },
-      { id: 'recovered-vovo-nena-9', name: 'Biscoito Maisena', quantity: 1 },
-      { id: 'recovered-vovo-nena-10', name: 'Leite UHT Integral 1L', quantity: 1 },
-      { id: 'recovered-vovo-nena-11', name: 'Tempero Knorr', quantity: 1 },
-      { id: 'recovered-vovo-nena-12', name: 'Margarina', quantity: 1 },
-      { id: 'recovered-vovo-nena-13', name: 'Creme de Leite', quantity: 1 },
-      { id: 'recovered-vovo-nena-14', name: 'Leite Condensado', quantity: 1 },
-      { id: 'recovered-vovo-nena-15', name: 'Ovo Branco', quantity: 1 },
-      { id: 'recovered-vovo-nena-16', name: 'Limpa Alumínio', quantity: 1 },
-      { id: 'recovered-vovo-nena-17', name: 'Água Sanitária', quantity: 1 },
-      { id: 'recovered-vovo-nena-18', name: 'Sabão em Pó', quantity: 1 },
-      { id: 'recovered-vovo-nena-19', name: 'Álcool', quantity: 1 },
-      { id: 'recovered-vovo-nena-20', name: 'Detergente', quantity: 1 },
-      { id: 'recovered-vovo-nena-21', name: 'Amaciante', quantity: 1 },
-      { id: 'recovered-vovo-nena-22', name: 'Limpador Multiuso', quantity: 1 },
-      { id: 'recovered-vovo-nena-23', name: 'Querosene', quantity: 1 },
-      { id: 'recovered-vovo-nena-24', name: 'Odorizador', quantity: 1 },
-      { id: 'recovered-vovo-nena-25', name: 'Sabão em Pedra', quantity: 1 },
-      { id: 'recovered-vovo-nena-26', name: 'Esponja Dupla Face', quantity: 1 },
-      { id: 'recovered-vovo-nena-27', name: 'Carne Moída', quantity: 1 }
-    ]
-  }
-];
+const DEFAULT_CLIENT_PRE_LISTS_VERSION = '2026-08-04-vovo-nena-completa';
+
+const DEFAULT_VOVO_NENA_PRE_LIST: ClientPreList = {
+  id: 'default-vovo-nena-lista-mercado-2026-08-04',
+  clientName: 'Vovó Nena',
+  listName: 'Vovó Nena',
+  city: 'Ourinhos',
+  createdAt: '2026-08-04T00:00:00.000Z',
+  updatedAt: '2026-08-04T00:00:00.000Z',
+  items: [
+    { id: 'vovo-nena-000', name: 'ABACATE kg', quantity: 1 },
+    { id: 'vovo-nena-001', name: 'ABACAXI kg', quantity: 1 },
+    { id: 'vovo-nena-002', name: 'Abobora Cabotia kg', quantity: 1 },
+    { id: 'vovo-nena-003', name: 'ABÓBORA PAULISTA kg', quantity: 1 },
+    { id: 'vovo-nena-004', name: 'Abobrinha kg', quantity: 1 },
+    { id: 'vovo-nena-005', name: 'Acelga kg', quantity: 1 },
+    { id: 'vovo-nena-006', name: 'Alho Descascado kg', quantity: 1 },
+    { id: 'vovo-nena-007', name: 'ALMEIRÃO kg', quantity: 1 },
+    { id: 'vovo-nena-008', name: 'Banana Maçã kg', quantity: 1 },
+    { id: 'vovo-nena-009', name: 'BANANA NANICA kg', quantity: 1 },
+    { id: 'vovo-nena-010', name: 'BATATA DOCE kg', quantity: 1 },
+    { id: 'vovo-nena-011', name: 'Batata Inglesa kg', quantity: 1 },
+    { id: 'vovo-nena-012', name: 'BERINJELA kg', quantity: 1 },
+    { id: 'vovo-nena-013', name: 'BETERRABA kg', quantity: 1 },
+    { id: 'vovo-nena-014', name: 'BRÓCOLIS kg', quantity: 1 },
+    { id: 'vovo-nena-015', name: 'Cebola kg', quantity: 1 },
+    { id: 'vovo-nena-016', name: 'Cenoura kg', quantity: 1 },
+    { id: 'vovo-nena-017', name: 'Cheiro Verde kg', quantity: 1 },
+    { id: 'vovo-nena-018', name: 'CHICÓRIA kg', quantity: 1 },
+    { id: 'vovo-nena-019', name: 'Chuchu kg', quantity: 1 },
+    { id: 'vovo-nena-020', name: 'COUVE kg', quantity: 1 },
+    { id: 'vovo-nena-021', name: 'Espinafre kg', quantity: 1 },
+    { id: 'vovo-nena-022', name: 'Laranja Pera kg', quantity: 1 },
+    { id: 'vovo-nena-023', name: 'Limão kg', quantity: 1 },
+    { id: 'vovo-nena-024', name: 'Maçã kg', quantity: 1 },
+    { id: 'vovo-nena-025', name: 'Mamão kg', quantity: 1 },
+    { id: 'vovo-nena-026', name: 'Mandioquinha Salsa kg', quantity: 1 },
+    { id: 'vovo-nena-027', name: 'Manga kg', quantity: 1 },
+    { id: 'vovo-nena-028', name: 'Melancia kg', quantity: 1 },
+    { id: 'vovo-nena-029', name: 'MILHO VERDE kg', quantity: 1 },
+    { id: 'vovo-nena-030', name: 'Morango kg', quantity: 1 },
+    { id: 'vovo-nena-031', name: 'Ovos kg', quantity: 1 },
+    { id: 'vovo-nena-032', name: 'PEPINO kg', quantity: 1 },
+    { id: 'vovo-nena-033', name: 'PÊRA kg', quantity: 1 },
+    { id: 'vovo-nena-034', name: 'Repolho kg', quantity: 1 },
+    { id: 'vovo-nena-035', name: 'Tomate kg', quantity: 1 },
+    { id: 'vovo-nena-036', name: 'Vagem kg', quantity: 1 },
+    { id: 'vovo-nena-037', name: 'AGUA SANITARIA', quantity: 1 },
+    { id: 'vovo-nena-038', name: 'ALCOOL', quantity: 1 },
+    { id: 'vovo-nena-039', name: 'AMACIANTE DE ROUPA', quantity: 1 },
+    { id: 'vovo-nena-040', name: 'DETERGENTE', quantity: 1 },
+    { id: 'vovo-nena-041', name: 'ESPONJA DUPLA FACE', quantity: 1 },
+    { id: 'vovo-nena-042', name: 'LIMPA ALUMINIO', quantity: 1 },
+    { id: 'vovo-nena-043', name: 'ODORISADOR DE AR', quantity: 1 },
+    { id: 'vovo-nena-044', name: 'PAPEL HIGIENCIO COM 12 OU MAIS ROLOS POR PACOTE', quantity: 1 },
+    { id: 'vovo-nena-045', name: 'QUEROSENE', quantity: 1 },
+    { id: 'vovo-nena-046', name: 'SABÃO EM PEDRA', quantity: 1 },
+    { id: 'vovo-nena-047', name: 'SABAO EM PÓ', quantity: 1 },
+    { id: 'vovo-nena-048', name: 'AMIDO DE MILHO', quantity: 1 },
+    { id: 'vovo-nena-049', name: 'ARROZ 5KG', quantity: 1 },
+    { id: 'vovo-nena-050', name: 'AVEIA EM FLOCOS FINOS', quantity: 1 },
+    { id: 'vovo-nena-051', name: 'BISCOITO DE MAISENA', quantity: 1 },
+    { id: 'vovo-nena-052', name: 'CREME DE LEITE', quantity: 1 },
+    { id: 'vovo-nena-053', name: 'FARINHA DE TRIGO', quantity: 1 },
+    { id: 'vovo-nena-054', name: 'FEIJÃO CARIOCA', quantity: 1 },
+    { id: 'vovo-nena-055', name: 'FERMENTO', quantity: 1 },
+    { id: 'vovo-nena-056', name: 'LEITE CONDENSADO', quantity: 1 },
+    { id: 'vovo-nena-057', name: 'LEITE UHT INTEGRAL 1L', quantity: 1 },
+    { id: 'vovo-nena-058', name: 'MACARRÃO ESPAGUETE', quantity: 1 },
+    { id: 'vovo-nena-059', name: 'MACARRÃO PARAFUSO', quantity: 1 },
+    { id: 'vovo-nena-060', name: 'MAIONESE', quantity: 1 },
+    { id: 'vovo-nena-061', name: 'MARGARINA', quantity: 1 },
+    { id: 'vovo-nena-062', name: 'MATTE', quantity: 1 },
+    { id: 'vovo-nena-063', name: 'ÓLEO DE SOJA', quantity: 1 },
+    { id: 'vovo-nena-064', name: 'SARDINHA - LATA', quantity: 1 },
+    { id: 'vovo-nena-065', name: 'TEMPERO KNORR', quantity: 1 },
+    { id: 'vovo-nena-066', name: 'VINAGRE', quantity: 1 },
+    { id: 'vovo-nena-067', name: 'CARNE BOVINA - ACÉM', quantity: 1 },
+    { id: 'vovo-nena-068', name: 'CARNE BOVINA - MUSCULO', quantity: 1 },
+    { id: 'vovo-nena-069', name: 'CARNE BOVINA MOIDA', quantity: 1 },
+    { id: 'vovo-nena-070', name: 'COXA SOBRECOXA DE FRANGO', quantity: 1 },
+    { id: 'vovo-nena-071', name: 'MOELA DE FRANGO', quantity: 1 },
+    { id: 'vovo-nena-072', name: 'PÉ DE FRANGO', quantity: 1 },
+    { id: 'vovo-nena-073', name: 'SALSICHA', quantity: 1 }
+  ]
+};
+
+const RECOVERED_CLIENT_PRE_LISTS: ClientPreList[] = [DEFAULT_VOVO_NENA_PRE_LIST];
+
+const mergeDefaultClientPreLists = (lists: ClientPreList[]) => {
+  const defaultClient = normalizeSearchText(DEFAULT_VOVO_NENA_PRE_LIST.clientName);
+  const defaultList = normalizeSearchText(DEFAULT_VOVO_NENA_PRE_LIST.listName);
+  const otherLists = lists.filter(list =>
+    list.id !== DEFAULT_VOVO_NENA_PRE_LIST.id &&
+    !(
+      normalizeSearchText(list.clientName) === defaultClient &&
+      normalizeSearchText(list.listName) === defaultList
+    )
+  );
+
+  return [DEFAULT_VOVO_NENA_PRE_LIST, ...otherLists];
+};
 
 const hasNormalizedPhrase = (text: string, phrases: string[]) =>
   phrases.some(phrase => text.includes(normalizeSearchText(phrase)));
@@ -931,16 +993,31 @@ export default function App() {
   const [clientPreLists, setClientPreLists] = useState<ClientPreList[]>(() => {
     const saved = localStorage.getItem('client_pre_lists');
     const recoveryApplied = localStorage.getItem('client_pre_lists_recovery_applied') === 'true';
+    const defaultListsVersion = localStorage.getItem('client_pre_lists_default_version');
     if (!saved && !recoveryApplied) {
       localStorage.setItem('client_pre_lists_recovery_applied', 'true');
+      localStorage.setItem('client_pre_lists_default_version', DEFAULT_CLIENT_PRE_LISTS_VERSION);
       return RECOVERED_CLIENT_PRE_LISTS;
     }
-    if (!saved) return [];
+    if (!saved) {
+      if (defaultListsVersion !== DEFAULT_CLIENT_PRE_LISTS_VERSION) {
+        localStorage.setItem('client_pre_lists_default_version', DEFAULT_CLIENT_PRE_LISTS_VERSION);
+        return RECOVERED_CLIENT_PRE_LISTS;
+      }
+
+      return [];
+    }
 
     try {
       const parsed = JSON.parse(saved) as ClientPreList[];
+      if (defaultListsVersion !== DEFAULT_CLIENT_PRE_LISTS_VERSION) {
+        localStorage.setItem('client_pre_lists_default_version', DEFAULT_CLIENT_PRE_LISTS_VERSION);
+        return mergeDefaultClientPreLists(parsed);
+      }
+
       if (parsed.length === 0 && !recoveryApplied) {
         localStorage.setItem('client_pre_lists_recovery_applied', 'true');
+        localStorage.setItem('client_pre_lists_default_version', DEFAULT_CLIENT_PRE_LISTS_VERSION);
         return RECOVERED_CLIENT_PRE_LISTS;
       }
 
@@ -949,6 +1026,7 @@ export default function App() {
       localStorage.removeItem('client_pre_lists');
       if (!recoveryApplied) {
         localStorage.setItem('client_pre_lists_recovery_applied', 'true');
+        localStorage.setItem('client_pre_lists_default_version', DEFAULT_CLIENT_PRE_LISTS_VERSION);
         return RECOVERED_CLIENT_PRE_LISTS;
       }
 
