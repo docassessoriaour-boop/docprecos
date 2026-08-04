@@ -124,6 +124,32 @@ const getProductDuplicateKey = (product: Product) => [
   product.endDate || ''
 ].join('|');
 
+const getShoppingItemDuplicateKey = (item: ShoppingItem) => {
+  const searchableName = getSearchTokens(item.name).join(' ');
+  return searchableName || normalizeDuplicateKeyText(item.name);
+};
+
+const consolidateShoppingItems = (items: ShoppingItem[]) => {
+  const itemMap = new Map<string, ShoppingItem>();
+
+  items.forEach(item => {
+    const key = getShoppingItemDuplicateKey(item);
+    const existing = itemMap.get(key);
+
+    if (existing) {
+      itemMap.set(key, {
+        ...existing,
+        quantity: existing.quantity + item.quantity
+      });
+      return;
+    }
+
+    itemMap.set(key, item);
+  });
+
+  return Array.from(itemMap.values());
+};
+
 const removeDuplicateProducts = (products: Product[]) => {
   const seenKeys = new Set<string>();
 
@@ -1752,7 +1778,8 @@ export default function App() {
       return;
     }
 
-    const itemsWithOffers = [...list]
+    const consolidatedList = consolidateShoppingItems(list);
+    const itemsWithOffers = [...consolidatedList]
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
       .map(item => {
         const offers = getAllOfferOptionsForItem(item.name, city);
@@ -1779,7 +1806,7 @@ export default function App() {
       <div class="summary">
         <div class="box">
           <div class="label">Itens da lista</div>
-          <div class="value">${list.length}</div>
+          <div class="value">${consolidatedList.length}</div>
         </div>
         <div class="box">
           <div class="label">Preços encontrados</div>
@@ -1863,7 +1890,7 @@ export default function App() {
 
     const now = new Date().toISOString();
     let savedPreListId = editingPreListId || String(Date.now());
-    const normalizedItems = shoppingList.map((item, index) => ({
+    const normalizedItems = consolidateShoppingItems(shoppingList).map((item, index) => ({
       ...item,
       id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`
     }));
@@ -1914,7 +1941,7 @@ export default function App() {
 
   const loadClientPreList = (preList: ClientPreList) => {
     setSelectedCity(preList.city);
-    setShoppingList(preList.items.map((item, index) => ({
+    setShoppingList(consolidateShoppingItems(preList.items).map((item, index) => ({
       ...item,
       id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`
     })));
@@ -1928,7 +1955,7 @@ export default function App() {
 
   const editClientPreList = (preList: ClientPreList) => {
     setSelectedCity(preList.city);
-    setShoppingList(preList.items.map((item, index) => ({
+    setShoppingList(consolidateShoppingItems(preList.items).map((item, index) => ({
       ...item,
       id: `${Date.now()}-${index}-${Math.random().toString(36).slice(2)}`
     })));
@@ -2045,15 +2072,16 @@ export default function App() {
     }) as { offer: Product, market: string }[];
 
   const getAllOfferOptionsForItem = (itemName: string, city: string) => {
-    const seenOfferIds = new Set<string>();
+    const seenOfferKeys = new Set<string>();
 
     return products
       .filter(product => city === 'Todas' || product.city === city)
       .filter(product => !isDateExpired(product.endDate))
       .map(product => ({ product, score: getSavedListItemOfferScore(itemName, product) }))
       .filter(({ product, score }) => {
-        if (score <= 0 || seenOfferIds.has(product.id)) return false;
-        seenOfferIds.add(product.id);
+        const offerKey = getProductDuplicateKey(product);
+        if (score <= 0 || seenOfferKeys.has(offerKey)) return false;
+        seenOfferKeys.add(offerKey);
         return true;
       })
       .sort((a, b) => {
@@ -2077,13 +2105,14 @@ export default function App() {
     city: string,
     offerIds: Record<string, string> = {}
   ) => {
+    const consolidatedItems = consolidateShoppingItems(itemsToCompare);
     const marketsForCity = getMarketsForCity(city);
     const marketComparisons: MarketComparison[] = marketsForCity.map(market => {
       let total = 0;
       let availableCount = 0;
       let missingCount = 0;
 
-      const items = itemsToCompare.map(item => {
+      const items = consolidatedItems.map(item => {
         const offer = findProductOffer(item.name, market, city);
         const found = !!offer;
         const price = offer ? offer.price : 0;
@@ -2126,7 +2155,7 @@ export default function App() {
     let splitTotal = 0;
     let missingCount = 0;
 
-    itemsToCompare.forEach(item => {
+    consolidatedItems.forEach(item => {
       const offers = getItemOfferOptionsForCity(item.name, city);
 
       if (offers.length > 0) {
