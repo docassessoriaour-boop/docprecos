@@ -19,6 +19,8 @@ dist-ssr
 .codex
 ENTRADA_OFERTAS/*
 Novo(a) Documento de Texto.txt
+*.inspect.ndjson
+outputs/lista-vovo-nena-work/
 
 # Editor directories and files
 .vscode/*
