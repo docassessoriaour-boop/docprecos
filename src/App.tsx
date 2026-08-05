@@ -124,7 +124,7 @@ const getProductDuplicateKey = (product: Product) => [
   product.endDate || ''
 ].join('|');
 
-const getShoppingItemDuplicateKey = (item: ShoppingItem) => {
+const getShoppingItemDuplicateKey = (item: Pick<ShoppingItem, 'name'>) => {
   const searchableName = getSearchTokens(item.name).join(' ');
   return searchableName || normalizeDuplicateKeyText(item.name);
 };
@@ -148,6 +148,76 @@ const consolidateShoppingItems = (items: ShoppingItem[]) => {
   });
 
   return Array.from(itemMap.values());
+};
+
+type MarketComparisonItem = MarketComparison['items'][number];
+
+const getComparisonItemMergeKey = (item: MarketComparisonItem) => {
+  if (!item.found) return `missing|${getShoppingItemDuplicateKey({ name: item.itemName })}`;
+
+  return [
+    'found',
+    normalizeDuplicateKeyText(item.catalogName || item.itemName),
+    formatProductPriceForKey(item.price)
+  ].join('|');
+};
+
+const mergeRepeatedComparisonItems = (items: MarketComparisonItem[]) => {
+  const merged = new Map<string, MarketComparisonItem>();
+
+  items.forEach(item => {
+    const key = getComparisonItemMergeKey(item);
+    const existing = merged.get(key);
+
+    if (existing) {
+      merged.set(key, {
+        ...existing,
+        quantity: existing.quantity + item.quantity,
+        subtotal: existing.subtotal + item.subtotal
+      });
+      return;
+    }
+
+    merged.set(key, { ...item });
+  });
+
+  return Array.from(merged.values());
+};
+
+const getOptimizedItemMergeKey = (item: OptimizedItem) => {
+  if (item.market === 'Não encontrado') return `missing|${getShoppingItemDuplicateKey({ name: item.name })}`;
+
+  return [
+    'found',
+    normalizeDuplicateKeyText(item.city),
+    normalizeDuplicateKeyText(item.market),
+    item.offerId || normalizeDuplicateKeyText(item.catalogName || item.name),
+    formatProductPriceForKey(item.price),
+    item.endDate || ''
+  ].join('|');
+};
+
+const mergeRepeatedOptimizedItems = (items: OptimizedItem[]) => {
+  const merged = new Map<string, OptimizedItem>();
+
+  items.forEach(item => {
+    const key = getOptimizedItemMergeKey(item);
+    const existing = merged.get(key);
+
+    if (existing) {
+      merged.set(key, {
+        ...existing,
+        quantity: existing.quantity + item.quantity,
+        subtotal: existing.subtotal + item.subtotal,
+        selectedManually: existing.selectedManually || item.selectedManually
+      });
+      return;
+    }
+
+    merged.set(key, { ...item });
+  });
+
+  return Array.from(merged.values());
 };
 
 const removeDuplicateProducts = (products: Product[]) => {
@@ -1218,7 +1288,8 @@ export default function App() {
               if (importedWhatsAppIds.current.has(item.id)) return;
               importedWhatsAppIds.current.add(item.id);
 
-              const idx = nextItems.findIndex(existing => normalizeSearchText(existing.name) === normalizeSearchText(item.name));
+              const incomingKey = getShoppingItemDuplicateKey(item);
+              const idx = nextItems.findIndex(existing => getShoppingItemDuplicateKey(existing) === incomingKey);
               if (idx > -1) {
                 nextItems[idx] = {
                   ...nextItems[idx],
@@ -1229,7 +1300,7 @@ export default function App() {
               }
             });
 
-            return nextItems;
+            return consolidateShoppingItems(nextItems);
           });
         }
 
@@ -1582,14 +1653,15 @@ export default function App() {
         setShoppingList(prev => {
           let updated = [...prev];
           items.forEach(newItem => {
-            const idx = updated.findIndex(existing => existing.name.toLowerCase() === newItem.name.toLowerCase());
+            const incomingKey = getShoppingItemDuplicateKey(newItem);
+            const idx = updated.findIndex(existing => getShoppingItemDuplicateKey(existing) === incomingKey);
             if (idx > -1) {
               updated[idx].quantity += newItem.quantity;
             } else {
               updated.push({ id: String(Date.now() + Math.random()), name: newItem.name, quantity: newItem.quantity });
             }
           });
-          return updated;
+          return consolidateShoppingItems(updated);
         });
         setWhatsAppText('');
         setUploadStatus(`Sucesso! ${items.length} itens extraídos da mensagem e adicionados à lista.`);
@@ -2056,13 +2128,14 @@ export default function App() {
   const addToShoppingList = (name: string) => {
     if (!name.trim()) return;
     
-    const existingIndex = shoppingList.findIndex(item => item.name.toLowerCase() === name.toLowerCase());
+    const incomingKey = getShoppingItemDuplicateKey({ name });
+    const existingIndex = shoppingList.findIndex(item => getShoppingItemDuplicateKey(item) === incomingKey);
     if (existingIndex > -1) {
       const updated = [...shoppingList];
       updated[existingIndex].quantity += 1;
-      setShoppingList(updated);
+      setShoppingList(consolidateShoppingItems(updated));
     } else {
-      setShoppingList(prev => [...prev, { id: String(Date.now()), name, quantity: 1 }]);
+      setShoppingList(prev => consolidateShoppingItems([...prev, { id: String(Date.now()), name, quantity: 1 }]));
     }
     setCustomItemInput('');
     setSuggestions([]);
@@ -2174,18 +2247,11 @@ export default function App() {
       let availableCount = 0;
       let missingCount = 0;
 
-      const items = consolidatedItems.map(item => {
+      const rawItems = consolidatedItems.map(item => {
         const offer = findProductOffer(item.name, market, city);
         const found = !!offer;
         const price = offer ? offer.price : 0;
         const subtotal = price * item.quantity;
-        
-        if (found) {
-          total += subtotal;
-          availableCount++;
-        } else {
-          missingCount++;
-        }
 
         return {
           itemName: item.name,
@@ -2196,6 +2262,11 @@ export default function App() {
           subtotal
         };
       });
+      const items = mergeRepeatedComparisonItems(rawItems);
+
+      total = items.reduce((sum, item) => sum + item.subtotal, 0);
+      availableCount = items.filter(item => item.found).length;
+      missingCount = items.filter(item => !item.found).length;
 
       return {
         marketName: market,
@@ -2261,7 +2332,7 @@ export default function App() {
     return {
       cityMarkets: marketsForCity,
       allInOneComparisons: marketComparisons,
-      optimizedItems: splitItems,
+      optimizedItems: mergeRepeatedOptimizedItems(splitItems),
       optimizedTotal: splitTotal,
       optimizedMissingCount: missingCount,
       bestAllInOne: bestSingleMarket
