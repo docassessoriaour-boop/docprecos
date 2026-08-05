@@ -246,6 +246,7 @@ type ProductFamily =
   | 'toothpaste'
   | 'softener'
   | 'disinfectant'
+  | 'pet_food'
   | 'unknown';
 
 type ProductAttribute =
@@ -453,6 +454,45 @@ const hasDifferentExplicitPackage = (queryPackage: ProductPackageInfo | null, pr
   return queryPackage.kind !== productPackage.kind || queryPackage.normalizedAmount !== productPackage.normalizedAmount;
 };
 
+const ANIMAL_FOOD_TERMS = [
+  'alimento para cachorro',
+  'alimento para cachorros',
+  'alimento para cao',
+  'alimento para caes',
+  'alimento para gato',
+  'alimento para gatos',
+  'para cachorro',
+  'para cachorros',
+  'para cao',
+  'para caes',
+  'para gato',
+  'para gatos',
+  'cachorro',
+  'cachorros',
+  'cao',
+  'caes',
+  'gato',
+  'gatos',
+  'petisco canino',
+  'petisco felino',
+  'bast dog',
+  'copadog'
+];
+
+const isAnimalFoodProduct = (value: string) => {
+  const text = normalizeSearchText(value);
+  const tokens = new Set(getSearchTokens(value));
+
+  return tokens.has('racao') ||
+    tokens.has('cachorro') ||
+    tokens.has('cachorros') ||
+    tokens.has('cao') ||
+    tokens.has('caes') ||
+    tokens.has('gato') ||
+    tokens.has('gatos') ||
+    hasNormalizedPhrase(` ${text} `, ANIMAL_FOOD_TERMS);
+};
+
 const getProductSubtype = (family: ProductFamily, text: string) => {
   const subtypeRules: Partial<Record<ProductFamily, { label: string; terms: string[] }[]>> = {
     rice: [
@@ -547,7 +587,8 @@ const getProductSearchProfile = (value: string): ProductSearchProfile => {
 
   let family: ProductFamily = 'unknown';
 
-  if (hasNormalizedPhrase(text, ['arroz'])) family = 'rice';
+  if (isAnimalFoodProduct(value)) family = 'pet_food';
+  else if (hasNormalizedPhrase(text, ['arroz'])) family = 'rice';
   else if (hasNormalizedPhrase(text, ['feijao'])) family = 'beans';
   else if (hasNormalizedPhrase(text, ['acucar'])) family = 'sugar';
   else if (hasNormalizedPhrase(text, ['oleo de soja', 'oleo vegetal', 'oleo'])) family = 'oil';
@@ -628,6 +669,7 @@ const productFamilyLabels: Record<ProductFamily, string> = {
   toothpaste: 'Creme Dental',
   softener: 'Amaciante',
   disinfectant: 'Desinfetante',
+  pet_food: 'Alimento Animal',
   unknown: 'Outros'
 };
 
@@ -817,14 +859,33 @@ const getSavedListItemOfferScore = (query: string, product: Product) => {
   const queryTokens = getSearchTokens(query);
   if (queryTokens.length === 0) return 0;
 
-  const hits = queryTokens.filter(token => normalizedProductText.includes(token)).length;
-  const score = hits / queryTokens.length;
+  const productTokens = new Set([
+    ...getSearchTokens(product.name),
+    ...getSearchTokens(product.category),
+    ...getSearchTokens(product.unit)
+  ]);
+  const hits = queryTokens.filter(token => productTokens.has(token) || normalizedProductText.includes(token)).length;
+  let score = hits / queryTokens.length;
 
   if (queryTokens.length <= 2) {
-    return score === 1 ? score : 0;
+    if (score !== 1) return 0;
+  } else if (score < 0.8) {
+    return 0;
   }
 
-  return score >= 0.8 ? score : 0;
+  const queryProfile = getProductSearchProfile(query);
+  const productProfile = getProductSearchProfile(`${product.name} ${product.unit}`);
+  const queryBrand = getLikelyBrand(query);
+  const productBrand = getLikelyBrand(product.name);
+
+  if (queryProfile.family !== 'unknown' && productProfile.family === queryProfile.family) score += 0.25;
+  if (queryProfile.subtype && queryProfile.subtype === productProfile.subtype) score += 0.15;
+  if (queryProfile.packageInfo && productProfile.packageInfo && !hasDifferentExplicitPackage(queryProfile.packageInfo, productProfile.packageInfo)) score += 0.2;
+  if (queryBrand !== '-' && productBrand !== '-') {
+    score += queryBrand === productBrand ? 0.25 : -0.4;
+  }
+
+  return Math.max(0, score);
 };
 
 const KNOWN_BRANDS = [
@@ -928,7 +989,8 @@ const PRODUCT_GROUP_DEFINITIONS = [
   { label: 'Sabonete', terms: ['sabonete'] },
   { label: 'Creme Dental', terms: ['creme dental', 'pasta dental'] },
   { label: 'Amaciante', terms: ['amaciante'] },
-  { label: 'Desinfetante', terms: ['desinfetante'] }
+  { label: 'Desinfetante', terms: ['desinfetante'] },
+  { label: 'Alimento Animal', terms: ANIMAL_FOOD_TERMS }
 ];
 
 const getProductGroup = (productName: string, unit = '') => {
