@@ -1901,6 +1901,108 @@ export default function App() {
     openPrintableReport(title, bodyHtml, city, subtitle);
   };
 
+  const exportBestPriceByItemPdf = (
+    list = shoppingList,
+    city = selectedCity,
+    title = 'Melhor Preco de Cada Item',
+    subtitle?: string
+  ) => {
+    if (list.length === 0) {
+      alert('Adicione itens na lista de compras antes de gerar o PDF.');
+      return;
+    }
+
+    const consolidatedList = consolidateShoppingItems(list);
+    const rows = consolidatedList
+      .map(item => {
+        const offers = getAllOfferOptionsForItem(item.name, city);
+        const bestOffer = offers[0];
+        const value = bestOffer ? getProductPackageValue(bestOffer) : null;
+
+        return {
+          item,
+          offer: bestOffer,
+          value,
+          subtotal: bestOffer ? bestOffer.price * item.quantity : 0
+        };
+      })
+      .sort((a, b) => a.item.name.localeCompare(b.item.name, 'pt-BR'));
+
+    const foundRows = rows.filter(row => row.offer);
+    const missingRows = rows.length - foundRows.length;
+    const total = foundRows.reduce((sum, row) => sum + row.subtotal, 0);
+
+    const bodyHtml = `
+      <div class="summary">
+        <div class="box">
+          <div class="label">Itens da lista</div>
+          <div class="value">${rows.length}</div>
+        </div>
+        <div class="box">
+          <div class="label">Itens com preço</div>
+          <div class="value">${foundRows.length}</div>
+        </div>
+        <div class="box">
+          <div class="label">Total melhor preço</div>
+          <div class="value">R$ ${total.toFixed(2).replace('.', ',')}</div>
+        </div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Item da lista</th>
+            <th>Produto encontrado</th>
+            <th>Marca</th>
+            <th>Mercado</th>
+            <th>UND</th>
+            <th class="money">Qtd</th>
+            <th class="money">Melhor preço</th>
+            <th class="money">R$/Base</th>
+            <th class="money">Subtotal</th>
+            <th>Validade</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map(({ item, offer, value, subtotal }) => {
+            if (!offer) {
+              return `
+                <tr>
+                  <td>${item.name}</td>
+                  <td colspan="9"><span class="missing">Nenhum preço encontrado</span></td>
+                </tr>
+              `;
+            }
+
+            return `
+              <tr>
+                <td>${item.name}</td>
+                <td>${offer.name}</td>
+                <td>${getLikelyBrand(offer.name)}</td>
+                <td>${offer.market}</td>
+                <td>${offer.unit || '-'}</td>
+                <td class="money">${item.quantity}</td>
+                <td class="money">R$ ${offer.price.toFixed(2).replace('.', ',')}</td>
+                <td class="money">${value ? value.label : '-'}</td>
+                <td class="money">R$ ${subtotal.toFixed(2).replace('.', ',')}</td>
+                <td>${formatPromotionDate(offer.endDate)}</td>
+              </tr>
+            `;
+          }).join('')}
+          <tr>
+            <th colspan="8" class="money">Total</th>
+            <th class="money">R$ ${total.toFixed(2).replace('.', ',')}</th>
+            <th>${missingRows > 0 ? `${missingRows} sem preço` : 'Completo'}</th>
+          </tr>
+        </tbody>
+      </table>
+      <div class="note">
+        Lista com apenas o melhor preço encontrado para cada item configurado, como arroz tipo 1, feijão carioca, leite em pó, leite UHT, creme de leite, vinagre, maçã e mamão.
+      </div>
+    `;
+
+    openPrintableReport(title, bodyHtml, city, subtitle);
+  };
+
   const exportAllFoundPricesPdf = (
     list = shoppingList,
     city = selectedCity,
@@ -2111,6 +2213,15 @@ export default function App() {
       preList.items,
       preList.city,
       'Melhores Precos para Cliente',
+      `Cliente: ${preList.clientName} - Pré-lista: ${preList.listName}`
+    );
+  };
+
+  const exportClientPreListBestPriceByItemPdf = (preList: ClientPreList) => {
+    exportBestPriceByItemPdf(
+      preList.items,
+      preList.city,
+      'Melhor Preco de Cada Item',
       `Cliente: ${preList.clientName} - Pré-lista: ${preList.listName}`
     );
   };
@@ -3313,6 +3424,12 @@ export default function App() {
                       </button>
                       <button
                         className="btn-secondary"
+                        onClick={() => exportClientPreListBestPriceByItemPdf(preList)}
+                      >
+                        <CheckCircle size={16} /> PDF melhor por item
+                      </button>
+                      <button
+                        className="btn-secondary"
                         onClick={() => exportClientPreListAllPricesPdf(preList)}
                       >
                         <FileTextIcon size={16} /> PDF todos preços
@@ -3583,6 +3700,13 @@ export default function App() {
                     style={{ justifyContent: 'center', fontWeight: '700' }}
                   >
                     <TrendingDown size={16} /> PDF Melhores Preços
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => exportBestPriceByItemPdf()}
+                    style={{ justifyContent: 'center', fontWeight: '700' }}
+                  >
+                    <CheckCircle size={16} /> PDF Melhor por Item
                   </button>
                   <button 
                     className="btn-primary" 
