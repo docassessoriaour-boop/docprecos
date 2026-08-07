@@ -784,18 +784,15 @@ const hasProductAttributeConflict = (queryAttributes: Set<ProductAttribute>, pro
     group.some(attribute => productAttributes.has(attribute) && !queryAttributes.has(attribute))
   );
 
-const requiredSearchAttributes: ProductAttribute[] = [
-  'integral',
-  'semidesnatado',
-  'desnatado',
+const requiredExactSearchAttributes: ProductAttribute[] = [
   'zero_lactose',
   'zero',
   'light',
   'diet'
 ];
 
-const isMissingRequiredProductAttribute = (queryAttributes: Set<ProductAttribute>, productAttributes: Set<ProductAttribute>) =>
-  requiredSearchAttributes.some(attribute => queryAttributes.has(attribute) && !productAttributes.has(attribute));
+const isMissingRequiredExactProductAttribute = (queryAttributes: Set<ProductAttribute>, productAttributes: Set<ProductAttribute>) =>
+  requiredExactSearchAttributes.some(attribute => queryAttributes.has(attribute) && !productAttributes.has(attribute));
 
 const isStrictProductMismatch = (query: string, productName: string) => {
   const queryProfile = getProductSearchProfile(query);
@@ -813,7 +810,7 @@ const isStrictProductMismatch = (query: string, productName: string) => {
     return true;
   }
 
-  if (isMissingRequiredProductAttribute(queryProfile.attributes, productProfile.attributes)) {
+  if (isMissingRequiredExactProductAttribute(queryProfile.attributes, productProfile.attributes)) {
     return true;
   }
 
@@ -918,6 +915,14 @@ const getSavedListItemOfferScore = (query: string, product: Product) => {
   const normalizedQuery = normalizeSearchText(query);
   const normalizedName = normalizeSearchText(product.name);
   const normalizedProductText = normalizeSearchText(`${product.name} ${product.unit}`);
+  const queryProfile = getProductSearchProfile(query);
+  const productProfile = getProductSearchProfile(`${product.name} ${product.unit}`);
+  const hasSameKnownFamily = queryProfile.family !== 'unknown' && productProfile.family === queryProfile.family;
+  const hasSameKnownPackage = !!(
+    queryProfile.packageInfo &&
+    productProfile.packageInfo &&
+    !hasDifferentExplicitPackage(queryProfile.packageInfo, productProfile.packageInfo)
+  );
 
   if (!normalizedQuery) return 0;
   if (isStrictProductMismatch(query, `${product.name} ${product.unit}`)) return 0;
@@ -938,19 +943,17 @@ const getSavedListItemOfferScore = (query: string, product: Product) => {
   let score = hits / queryTokens.length;
 
   if (queryTokens.length <= 2) {
-    if (score !== 1) return 0;
-  } else if (score < 0.8) {
+    if (score !== 1 && !hasSameKnownFamily) return 0;
+  } else if (score < (hasSameKnownFamily && (hasSameKnownPackage || !queryProfile.packageInfo) ? 0.6 : 0.8)) {
     return 0;
   }
 
-  const queryProfile = getProductSearchProfile(query);
-  const productProfile = getProductSearchProfile(`${product.name} ${product.unit}`);
   const queryBrand = getLikelyBrand(query);
   const productBrand = getLikelyBrand(product.name);
 
-  if (queryProfile.family !== 'unknown' && productProfile.family === queryProfile.family) score += 0.25;
+  if (hasSameKnownFamily) score += 0.25;
   if (queryProfile.subtype && queryProfile.subtype === productProfile.subtype) score += 0.15;
-  if (queryProfile.packageInfo && productProfile.packageInfo && !hasDifferentExplicitPackage(queryProfile.packageInfo, productProfile.packageInfo)) score += 0.2;
+  if (hasSameKnownPackage) score += 0.2;
   if (queryBrand !== '-' && productBrand !== '-') {
     score += queryBrand === productBrand ? 0.25 : -0.4;
   }
