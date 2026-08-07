@@ -1760,17 +1760,28 @@ export default function App() {
       return;
     }
 
-    const bodyHtml = allInOneComparisons
+    const comparisonsWithFoundItems = allInOneComparisons
+      .map(comparison => ({
+        ...comparison,
+        items: comparison.items.filter(item => item.found)
+      }))
+      .filter(comparison => comparison.items.length > 0);
+
+    if (comparisonsWithFoundItems.length === 0) {
+      alert('Nenhum item com preço encontrado para gerar o PDF.');
+      return;
+    }
+
+    const bodyHtml = comparisonsWithFoundItems
       .sort((a, b) => {
-        if (a.missingCount !== b.missingCount) return a.missingCount - b.missingCount;
+        if (b.availableCount !== a.availableCount) return b.availableCount - a.availableCount;
         return a.total - b.total;
       })
       .map(comparison => `
         <h2>${comparison.marketName}</h2>
         <div class="note">
           Total encontrado: R$ ${comparison.total.toFixed(2).replace('.', ',')} -
-          Itens encontrados: ${comparison.availableCount} -
-          Itens ausentes: ${comparison.missingCount}
+          Itens com preço: ${comparison.items.length}
         </div>
         <table>
           <thead>
@@ -1780,7 +1791,6 @@ export default function App() {
               <th class="money">Qtd</th>
               <th class="money">Valor Unit.</th>
               <th class="money">Subtotal</th>
-              <th>Status</th>
             </tr>
           </thead>
           <tbody>
@@ -1793,13 +1803,11 @@ export default function App() {
                 <td class="money">${item.quantity}</td>
                 <td class="money">${item.found ? `R$ ${item.price.toFixed(2).replace('.', ',')}` : '-'}</td>
                 <td class="money">${item.found ? `R$ ${item.subtotal.toFixed(2).replace('.', ',')}` : '-'}</td>
-                <td>${item.found ? 'Encontrado' : '<span class="missing">Nao encontrado</span>'}</td>
               </tr>
             `).join('')}
             <tr>
               <th colspan="4" class="money">Subtotal ${comparison.marketName}</th>
               <th class="money">R$ ${comparison.total.toFixed(2).replace('.', ',')}</th>
-              <th>${comparison.missingCount > 0 ? `${comparison.missingCount} ausente(s)` : 'Completo'}</th>
             </tr>
           </tbody>
         </table>
@@ -1829,7 +1837,14 @@ export default function App() {
     const savingsPercent = bestSingleMarket && bestSingleMarket.total > 0
       ? (savings / bestSingleMarket.total) * 100
       : 0;
-    const groupedOptimizedItems = comparison.optimizedItems.reduce<Record<string, OptimizedItem[]>>((acc, item) => {
+    const foundOptimizedItems = comparison.optimizedItems.filter(item => item.market !== 'Não encontrado');
+
+    if (foundOptimizedItems.length === 0) {
+      alert('Nenhum item com preço encontrado para gerar o PDF.');
+      return;
+    }
+
+    const groupedOptimizedItems = foundOptimizedItems.reduce<Record<string, OptimizedItem[]>>((acc, item) => {
       const market = item.market || 'Não encontrado';
       acc[market] = acc[market] || [];
       acc[market].push(item);
@@ -1838,8 +1853,6 @@ export default function App() {
 
     const groupedRowsHtml = Object.entries(groupedOptimizedItems)
       .sort(([marketA], [marketB]) => {
-        if (marketA === 'Não encontrado') return 1;
-        if (marketB === 'Não encontrado') return -1;
         return marketA.localeCompare(marketB, 'pt-BR');
       })
       .map(([market, items]) => {
@@ -1866,14 +1879,14 @@ export default function App() {
                     <td>${item.catalogName || item.name}</td>
                     <td>${getLikelyBrand(item.catalogName || item.name)}</td>
                     <td class="money">${item.quantity}</td>
-                    <td class="money">${item.market !== 'Não encontrado' ? `R$ ${item.price.toFixed(2).replace('.', ',')}` : '-'}</td>
-                    <td>${item.market !== 'Não encontrado' ? formatPromotionDate(item.endDate) : '-'}</td>
-                    <td class="money">${item.market !== 'Não encontrado' ? `R$ ${item.subtotal.toFixed(2).replace('.', ',')}` : '-'}</td>
+                    <td class="money">R$ ${item.price.toFixed(2).replace('.', ',')}</td>
+                    <td>${formatPromotionDate(item.endDate)}</td>
+                    <td class="money">R$ ${item.subtotal.toFixed(2).replace('.', ',')}</td>
                   </tr>
                 `).join('')}
               <tr>
                 <th colspan="5" class="money">Subtotal ${market}</th>
-                <th class="money">${market !== 'Não encontrado' ? `R$ ${marketSubtotal.toFixed(2).replace('.', ',')}` : '-'}</th>
+                <th class="money">R$ ${marketSubtotal.toFixed(2).replace('.', ',')}</th>
               </tr>
             </tbody>
           </table>
@@ -1932,18 +1945,22 @@ export default function App() {
       .sort((a, b) => a.item.name.localeCompare(b.item.name, 'pt-BR'));
 
     const foundRows = rows.filter(row => row.offer);
-    const missingRows = rows.length - foundRows.length;
     const total = foundRows.reduce((sum, row) => sum + row.subtotal, 0);
+
+    if (foundRows.length === 0) {
+      alert('Nenhum item com preço encontrado para gerar o PDF.');
+      return;
+    }
 
     const bodyHtml = `
       <div class="summary">
         <div class="box">
-          <div class="label">Itens da lista</div>
-          <div class="value">${rows.length}</div>
-        </div>
-        <div class="box">
           <div class="label">Itens com preço</div>
           <div class="value">${foundRows.length}</div>
+        </div>
+        <div class="box">
+          <div class="label">Itens omitidos sem preço</div>
+          <div class="value">${rows.length - foundRows.length}</div>
         </div>
         <div class="box">
           <div class="label">Total melhor preço</div>
@@ -1966,35 +1983,26 @@ export default function App() {
           </tr>
         </thead>
         <tbody>
-          ${rows.map(({ item, offer, value, subtotal }) => {
-            if (!offer) {
-              return `
-                <tr>
-                  <td>${item.name}</td>
-                  <td colspan="9"><span class="missing">Nenhum preço encontrado</span></td>
-                </tr>
-              `;
-            }
-
+          ${foundRows.map(({ item, offer, value, subtotal }) => {
             return `
               <tr>
                 <td>${item.name}</td>
-                <td>${offer.name}</td>
-                <td>${getLikelyBrand(offer.name)}</td>
-                <td>${offer.market}</td>
-                <td>${offer.unit || '-'}</td>
+                <td>${offer?.name}</td>
+                <td>${getLikelyBrand(offer?.name || '')}</td>
+                <td>${offer?.market}</td>
+                <td>${offer?.unit || '-'}</td>
                 <td class="money">${item.quantity}</td>
-                <td class="money">R$ ${offer.price.toFixed(2).replace('.', ',')}</td>
+                <td class="money">R$ ${offer?.price.toFixed(2).replace('.', ',')}</td>
                 <td class="money">${value ? value.label : '-'}</td>
                 <td class="money">R$ ${subtotal.toFixed(2).replace('.', ',')}</td>
-                <td>${formatPromotionDate(offer.endDate)}</td>
+                <td>${formatPromotionDate(offer?.endDate)}</td>
               </tr>
             `;
           }).join('')}
           <tr>
             <th colspan="8" class="money">Total</th>
             <th class="money">R$ ${total.toFixed(2).replace('.', ',')}</th>
-            <th>${missingRows > 0 ? `${missingRows} sem preço` : 'Completo'}</th>
+            <th>${foundRows.length} item(ns)</th>
           </tr>
         </tbody>
       </table>
@@ -2038,22 +2046,27 @@ export default function App() {
         };
       });
 
-    const foundOffersCount = itemsWithOffers.reduce((total, item) => total + item.offerValueDetails.length, 0);
-    const missingItemsCount = itemsWithOffers.filter(item => item.offerValueDetails.length === 0).length;
+    const itemsWithFoundOffers = itemsWithOffers.filter(item => item.offerValueDetails.length > 0);
+    const foundOffersCount = itemsWithFoundOffers.reduce((total, item) => total + item.offerValueDetails.length, 0);
+
+    if (itemsWithFoundOffers.length === 0) {
+      alert('Nenhum item com preço encontrado para gerar o PDF.');
+      return;
+    }
 
     const bodyHtml = `
       <div class="summary">
         <div class="box">
-          <div class="label">Itens da lista</div>
-          <div class="value">${consolidatedList.length}</div>
+          <div class="label">Itens com preço</div>
+          <div class="value">${itemsWithFoundOffers.length}</div>
         </div>
         <div class="box">
           <div class="label">Preços encontrados</div>
           <div class="value">${foundOffersCount}</div>
         </div>
         <div class="box">
-          <div class="label">Itens sem preço</div>
-          <div class="value">${missingItemsCount}</div>
+          <div class="label">Itens omitidos sem preço</div>
+          <div class="value">${consolidatedList.length - itemsWithFoundOffers.length}</div>
         </div>
       </div>
       <table>
@@ -2073,16 +2086,7 @@ export default function App() {
           </tr>
         </thead>
         <tbody>
-          ${itemsWithOffers.map(({ item, offerValueDetails, bestValuePrice }) => {
-            if (offerValueDetails.length === 0) {
-              return `
-                <tr>
-                  <td>${item.name}</td>
-                  <td colspan="10"><span class="missing">Nenhum preço encontrado</span></td>
-                </tr>
-              `;
-            }
-
+          ${itemsWithFoundOffers.map(({ item, offerValueDetails, bestValuePrice }) => {
             return offerValueDetails.map(({ offer, value }, offerIndex) => {
               const isBestValue = value && bestValuePrice !== null && Math.abs(value.valuePrice - bestValuePrice) < 0.001;
 
