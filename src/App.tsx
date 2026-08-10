@@ -3741,6 +3741,17 @@ export default function App() {
               </div>
             ) : (
               <div>
+                <div className="shopping-list-toolbar">
+                  <span>{shoppingList.length} produtos na lista</span>
+                  <button
+                    className="btn-secondary clear-products-btn"
+                    onClick={clearShoppingList}
+                    title="Limpar todos os produtos da lista"
+                  >
+                    <Trash2 size={16} />
+                    Limpar produtos
+                  </button>
+                </div>
                 <div className="added-items-list">
                   {shoppingList.map(item => (
                     <div key={item.id} className="shopping-item-row">
