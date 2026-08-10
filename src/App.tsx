@@ -2644,22 +2644,12 @@ export default function App() {
     }
 
     const quoteItems = sourceItems
-      .map(item => {
-        const referenceOffer = getItemOfferOptionsForCity(item.name, preList.city)[0]?.offer;
-
-        return {
-          item,
-          referenceOffer,
-          displayName: referenceOffer?.name || item.name,
-          brand: getLikelyBrand(referenceOffer?.name || item.name),
-          unit: referenceOffer?.unit || '-',
-          category: referenceOffer?.category || '-'
-        };
-      })
+      .map(item => ({
+        item,
+        displayName: item.name
+      }))
       .sort((a, b) =>
-        a.category.localeCompare(b.category, 'pt-BR') ||
-        a.displayName.localeCompare(b.displayName, 'pt-BR') ||
-        a.unit.localeCompare(b.unit, 'pt-BR')
+        a.displayName.localeCompare(b.displayName, 'pt-BR')
       );
 
     const rowsHtml = `
@@ -2673,23 +2663,19 @@ export default function App() {
         <thead>
           <tr>
             <th>Produto</th>
-            <th>Marca</th>
-            <th>UND</th>
             <th>Qtd Lista</th>
-            <th>Categoria</th>
+            <th>UND</th>
             <th class="write-cell">Qtd Caixa Master</th>
             <th class="write-cell">Valor Unit.</th>
             <th>Observações</th>
           </tr>
         </thead>
         <tbody>
-          ${quoteItems.map(({ item, displayName, brand, unit, category }) => `
+          ${quoteItems.map(({ item, displayName }) => `
             <tr>
               <td>${escapeHtml(displayName)}</td>
-              <td>${escapeHtml(brand)}</td>
-              <td>${escapeHtml(unit)}</td>
               <td>${escapeHtml(item.quantity)}</td>
-              <td>${escapeHtml(category)}</td>
+              <td>&nbsp;</td>
               <td class="write-cell">&nbsp;</td>
               <td class="write-cell">&nbsp;</td>
               <td>&nbsp;</td>
@@ -2733,8 +2719,8 @@ export default function App() {
             tr { break-inside: avoid; page-break-inside: avoid; }
             th, td { border: 1px solid #9ca3af; padding: 6px 7px; font-size: 10px; text-align: left; vertical-align: top; }
             th { background: #f3f4f6; font-weight: 700; }
+            td:nth-child(2), th:nth-child(2) { text-align: center; white-space: nowrap; }
             td:nth-child(3), th:nth-child(3) { white-space: nowrap; }
-            td:nth-child(4), th:nth-child(4) { text-align: center; white-space: nowrap; }
             .write-cell { width: 82px; text-align: center; }
             tbody td.write-cell { height: 24px; }
           </style>
