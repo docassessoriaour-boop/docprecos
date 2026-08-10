@@ -297,6 +297,8 @@ type ProductFamily =
   | 'flour'
   | 'biscuit'
   | 'soda'
+  | 'water_mineral'
+  | 'coconut_water'
   | 'beer'
   | 'milk_uht'
   | 'milk_condensed'
@@ -316,6 +318,13 @@ type ProductFamily =
   | 'toothpaste'
   | 'softener'
   | 'disinfectant'
+  | 'bleach'
+  | 'steel_wool'
+  | 'cleaning_sponge'
+  | 'alcohol'
+  | 'air_freshener'
+  | 'kerosene'
+  | 'aluminum_cleaner'
   | 'pet_food'
   | 'unknown';
 
@@ -642,6 +651,10 @@ const getProductSubtype = (family: ProductFamily, text: string) => {
       { label: 'Laranja', terms: ['fanta laranja', 'laranja'] },
       { label: 'Limão', terms: ['sprite', 'limao'] }
     ],
+    water_mineral: [
+      { label: 'Sem Gás', terms: ['sem gas', 's gas'] },
+      { label: 'Com Gás', terms: ['com gas', 'c gas'] }
+    ],
     beer: [
       { label: 'Lata', terms: ['lata', 'latinha'] },
       { label: 'Long Neck', terms: ['long neck', 'longneck'] },
@@ -686,6 +699,9 @@ const getProductSearchProfile = (value: string): ProductSearchProfile => {
   else if (hasNormalizedPhrase(text, ['farinha'])) family = 'flour';
   else if (hasNormalizedPhrase(text, ['biscoito', 'bolacha', 'passatempo'])) family = 'biscuit';
   else if (hasNormalizedPhrase(text, ['refrigerante', 'coca cola', 'guarana', 'fanta', 'sprite', 'soda'])) family = 'soda';
+  else if (hasNormalizedPhrase(text, ['agua sanitaria', 'agua sanitar', 'qboa', 'candida', 'alvejante'])) family = 'bleach';
+  else if (hasNormalizedPhrase(text, ['agua de coco'])) family = 'coconut_water';
+  else if (hasNormalizedPhrase(text, ['agua mineral', 'agua sem gas', 'agua com gas', 'agua c gas', 'agua s gas'])) family = 'water_mineral';
   else if (hasNormalizedPhrase(text, ['cerveja'])) family = 'beer';
   else if (hasNormalizedPhrase(text, ['leite condensado'])) family = 'milk_condensed';
   else if (hasNormalizedPhrase(text, ['creme de leite', 'creme leite'])) family = 'milk_cream';
@@ -724,6 +740,18 @@ const getProductSearchProfile = (value: string): ProductSearchProfile => {
     family = 'softener';
   } else if (hasNormalizedPhrase(text, ['desinfetante'])) {
     family = 'disinfectant';
+  } else if (hasNormalizedPhrase(text, ['esponja de aco', 'la de aco', 'bombril', 'assolan'])) {
+    family = 'steel_wool';
+  } else if (hasNormalizedPhrase(text, ['esponja dupla face', 'esponja multiuso', 'esponja limpeza', 'esponja'])) {
+    family = 'cleaning_sponge';
+  } else if (hasNormalizedPhrase(text, ['alcool'])) {
+    family = 'alcohol';
+  } else if (hasNormalizedPhrase(text, ['odorizador de ar', 'odorisador de ar', 'aromatizador', 'bom ar'])) {
+    family = 'air_freshener';
+  } else if (hasNormalizedPhrase(text, ['querosene'])) {
+    family = 'kerosene';
+  } else if (hasNormalizedPhrase(text, ['limpa aluminio'])) {
+    family = 'aluminum_cleaner';
   }
 
   return { family, attributes, packageInfo, subtype: getProductSubtype(family, text) };
@@ -739,6 +767,8 @@ const productFamilyLabels: Record<ProductFamily, string> = {
   flour: 'Farinha',
   biscuit: 'Biscoito',
   soda: 'Refrigerante',
+  water_mineral: 'Água Mineral',
+  coconut_water: 'Água de Coco',
   beer: 'Cerveja',
   milk_uht: 'Leite UHT',
   milk_condensed: 'Leite Condensado',
@@ -758,6 +788,13 @@ const productFamilyLabels: Record<ProductFamily, string> = {
   toothpaste: 'Creme Dental',
   softener: 'Amaciante',
   disinfectant: 'Desinfetante',
+  bleach: 'Água Sanitária',
+  steel_wool: 'Esponja/Lã de Aço',
+  cleaning_sponge: 'Esponja',
+  alcohol: 'Álcool',
+  air_freshener: 'Odorizador de Ar',
+  kerosene: 'Querosene',
+  aluminum_cleaner: 'Limpa Alumínio',
   pet_food: 'Alimento Animal',
   unknown: 'Outros'
 };
@@ -895,12 +932,18 @@ const isExcludedProductMatch = (query: string, productName: string) => {
   });
 };
 
+const tokenMatchesProductText = (token: string, productTokens: Set<string>, productText: string) =>
+  productTokens.has(token) || (token.length >= 4 && productText.includes(token));
+
 const getProductMatchScore = (query: string, product: Product) => {
   const normalizedQuery = normalizeSearchText(query);
   const normalizedName = normalizeSearchText(product.name);
   const normalizedProductText = normalizeSearchText(`${product.name} ${product.unit}`);
   const normalizedCategory = normalizeSearchText(product.category);
   const normalizedMarket = normalizeSearchText(product.market);
+  const queryProfile = getProductSearchProfile(query);
+  const productProfile = getProductSearchProfile(`${product.name} ${product.unit}`);
+  const hasSameKnownFamily = queryProfile.family !== 'unknown' && productProfile.family === queryProfile.family;
 
   if (!normalizedQuery) return 1;
   if (isStrictProductMismatch(query, `${product.name} ${product.unit}`)) return 0;
@@ -921,13 +964,15 @@ const getProductMatchScore = (query: string, product: Product) => {
   ]);
 
   const hits = queryTokens.filter(token =>
-    productTokens.has(token) ||
-    normalizedName.includes(token) ||
-    normalizedCategory.includes(token) ||
-    normalizedMarket.includes(token)
+    tokenMatchesProductText(token, productTokens, normalizedName) ||
+    (token.length >= 4 && (normalizedCategory.includes(token) || normalizedMarket.includes(token)))
   ).length;
 
-  return hits / queryTokens.length;
+  const score = hits / queryTokens.length;
+
+  if (queryTokens.length <= 2 && score !== 1 && !hasSameKnownFamily) return 0;
+
+  return hasSameKnownFamily ? score + 0.25 : score;
 };
 
 const getSavedListItemOfferScore = (query: string, product: Product) => {
@@ -958,7 +1003,7 @@ const getSavedListItemOfferScore = (query: string, product: Product) => {
     ...getSearchTokens(product.category),
     ...getSearchTokens(product.unit)
   ]);
-  const hits = queryTokens.filter(token => productTokens.has(token) || normalizedProductText.includes(token)).length;
+  const hits = queryTokens.filter(token => tokenMatchesProductText(token, productTokens, normalizedProductText)).length;
   let score = hits / queryTokens.length;
 
   if (queryTokens.length <= 2) {
