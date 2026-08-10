@@ -2635,37 +2635,37 @@ export default function App() {
     reportWindow.document.close();
   };
 
-  const exportManualQuoteProductsPdf = () => {
-    const sourceProducts = productsMatchingFiltersWithoutExpiry.length > 0
-      ? productsMatchingFiltersWithoutExpiry
-      : products;
+  const exportManualQuotePreListPdf = (preList: ClientPreList) => {
+    const sourceItems = consolidateShoppingItems(preList.items);
 
-    if (sourceProducts.length === 0) {
-      alert('Nenhum produto cadastrado para gerar o PDF de orçamento manual.');
+    if (sourceItems.length === 0) {
+      alert('Esta pré-lista não tem itens para gerar o PDF de orçamento manual.');
       return;
     }
 
-    const uniqueProducts = Array.from(
-      sourceProducts.reduce((acc, product) => {
-        const key = [
-          normalizeSearchText(product.name),
-          normalizeSearchText(product.unit),
-          normalizeSearchText(product.category)
-        ].join('|');
+    const quoteItems = sourceItems
+      .map(item => {
+        const referenceOffer = getItemOfferOptionsForCity(item.name, preList.city)[0]?.offer;
 
-        if (!acc.has(key)) acc.set(key, product);
-        return acc;
-      }, new Map<string, Product>())
-    )
-      .map(([, product]) => product)
+        return {
+          item,
+          referenceOffer,
+          displayName: referenceOffer?.name || item.name,
+          brand: getLikelyBrand(referenceOffer?.name || item.name),
+          unit: referenceOffer?.unit || '-',
+          category: referenceOffer?.category || '-'
+        };
+      })
       .sort((a, b) =>
         a.category.localeCompare(b.category, 'pt-BR') ||
-        a.name.localeCompare(b.name, 'pt-BR') ||
+        a.displayName.localeCompare(b.displayName, 'pt-BR') ||
         a.unit.localeCompare(b.unit, 'pt-BR')
       );
 
     const rowsHtml = `
       <div class="quote-header">
+        <div><strong>Cliente:</strong> ${escapeHtml(preList.clientName)} <strong>Pré-lista:</strong> ${escapeHtml(preList.listName)}</div>
+        <div><strong>Cidade:</strong> ${escapeHtml(preList.city)}</div>
         <div><strong>Mercado:</strong> ________________________________________________</div>
         <div><strong>Responsável:</strong> _______________________ <strong>Data:</strong> ____/____/______</div>
       </div>
@@ -2675,6 +2675,7 @@ export default function App() {
             <th>Produto</th>
             <th>Marca</th>
             <th>UND</th>
+            <th>Qtd Lista</th>
             <th>Categoria</th>
             <th class="write-cell">Qtd Caixa Master</th>
             <th class="write-cell">Valor Unit.</th>
@@ -2682,12 +2683,13 @@ export default function App() {
           </tr>
         </thead>
         <tbody>
-          ${uniqueProducts.map(product => `
+          ${quoteItems.map(({ item, displayName, brand, unit, category }) => `
             <tr>
-              <td>${escapeHtml(product.name)}</td>
-              <td>${escapeHtml(getLikelyBrand(product.name))}</td>
-              <td>${escapeHtml(product.unit || '-')}</td>
-              <td>${escapeHtml(product.category || '-')}</td>
+              <td>${escapeHtml(displayName)}</td>
+              <td>${escapeHtml(brand)}</td>
+              <td>${escapeHtml(unit)}</td>
+              <td>${escapeHtml(item.quantity)}</td>
+              <td>${escapeHtml(category)}</td>
               <td class="write-cell">&nbsp;</td>
               <td class="write-cell">&nbsp;</td>
               <td>&nbsp;</td>
@@ -2696,7 +2698,7 @@ export default function App() {
         </tbody>
       </table>
       <div class="note">
-        Folha para cotação manual: preencher quantidade por caixa master, valor unitário e observações do mercado.
+        Cotação manual referente somente à pré-lista selecionada: preencher quantidade por caixa master, valor unitário e observações do mercado.
       </div>
     `;
 
@@ -2732,6 +2734,7 @@ export default function App() {
             th, td { border: 1px solid #9ca3af; padding: 6px 7px; font-size: 10px; text-align: left; vertical-align: top; }
             th { background: #f3f4f6; font-weight: 700; }
             td:nth-child(3), th:nth-child(3) { white-space: nowrap; }
+            td:nth-child(4), th:nth-child(4) { text-align: center; white-space: nowrap; }
             .write-cell { width: 82px; text-align: center; }
             tbody td.write-cell { height: 24px; }
           </style>
@@ -2739,7 +2742,7 @@ export default function App() {
         <body>
           <h1>Orçamento Manual de Produtos</h1>
           <div class="meta">
-            Gerado em ${new Date().toLocaleDateString('pt-BR')} - ${uniqueProducts.length} produtos listados
+            Gerado em ${new Date().toLocaleDateString('pt-BR')} - ${quoteItems.length} itens da pré-lista
           </div>
           ${rowsHtml}
           <script>
@@ -3438,14 +3441,6 @@ export default function App() {
 
             <button
               className="btn-secondary"
-              onClick={exportManualQuoteProductsPdf}
-              disabled={products.length === 0}
-            >
-              <Pencil size={16} /> PDF Orçamento Manual
-            </button>
-
-            <button
-              className="btn-secondary"
               onClick={exportBestPricesPdf}
               disabled={products.length === 0}
             >
@@ -3613,6 +3608,12 @@ export default function App() {
                         onClick={() => exportClientPreListBestPriceByItemPdf(preList)}
                       >
                         <CheckCircle size={16} /> PDF melhor por item
+                      </button>
+                      <button
+                        className="btn-secondary"
+                        onClick={() => exportManualQuotePreListPdf(preList)}
+                      >
+                        <Pencil size={16} /> PDF orçamento manual
                       </button>
                       <button
                         className="btn-secondary"
