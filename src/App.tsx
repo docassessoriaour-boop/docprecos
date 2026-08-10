@@ -308,6 +308,7 @@ type ProductFamily =
   | 'milk_sweet'
   | 'chocolate_milk'
   | 'dairy_drink'
+  | 'laundry_bar'
   | 'laundry_powder'
   | 'dish_detergent'
   | 'toilet_paper'
@@ -668,6 +669,7 @@ const getProductSearchProfile = (value: string): ProductSearchProfile => {
   if (hasNormalizedPhrase(text, ['light'])) attributes.add('light');
   if (hasNormalizedPhrase(text, ['diet'])) attributes.add('diet');
 
+  const tokens = new Set(getSearchTokens(value));
   let family: ProductFamily = 'unknown';
 
   if (isAnimalFoodProduct(value)) family = 'pet_food';
@@ -697,6 +699,11 @@ const getProductSearchProfile = (value: string): ProductSearchProfile => {
     hasNormalizedPhrase(text, [' leite ', 'leite uht', 'leite longa vida', 'uht integral', 'uht desnatado', 'uht semidesnatado'])
   ) {
     family = 'milk_uht';
+  } else if (
+    tokens.has('sabao') &&
+    (tokens.has('barra') || tokens.has('pedra') || tokens.has('pedaco'))
+  ) {
+    family = 'laundry_bar';
   } else if (hasNormalizedPhrase(text, ['sabao em po', 'detergente em po', 'po lavagem', 'lava roupas', 'lava roupa'])) {
     family = 'laundry_powder';
   } else if (
@@ -759,6 +766,7 @@ const productFamilyLabels: Record<ProductFamily, string> = {
   milk_sweet: 'Doce de Leite',
   chocolate_milk: 'Achocolatado',
   dairy_drink: 'Bebida Láctea',
+  laundry_bar: 'Sabão em Barra',
   laundry_powder: 'Sabão em Pó',
   dish_detergent: 'Detergente',
   toilet_paper: 'Papel Higiênico',

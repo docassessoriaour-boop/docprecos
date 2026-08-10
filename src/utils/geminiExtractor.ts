@@ -501,6 +501,7 @@ export async function searchOffersOnline(
       7. A cidade deve ser "${city}".
       8. Quando o usuário informar itens prioritários, retorne primeiro ofertas que correspondam a esses itens. Aceite variações próximas, como "leite" para "leite integral 1L".
       9. Descarte preços improváveis ou textos que não sejam produtos de supermercado.
+      10. Para itens de limpeza, respeite o produto principal. Se o item pedido for "sabão em barra", "sabão em pedra" ou "sabão em pedaço", retorne apenas sabão de lavar roupa em barra/pedra/pedaço; nunca retorne chocolate, alimentos ou sabonete só porque também usam a palavra "barra".
 
       Retorne APENAS um array JSON válido (sem formatações markdown extras, sem \`\`\`json ou similar), contendo objetos na seguinte estrutura:
       [
