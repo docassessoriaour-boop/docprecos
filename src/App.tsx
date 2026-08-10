@@ -375,25 +375,6 @@ interface ClientPreList {
   updatedAt: string;
 }
 
-type PayrollScale = '5x2' | '6x1' | '12x36' | 'custom';
-
-interface PayrollEmployee {
-  id: string;
-  name: string;
-  payrollMonth: string;
-  monthlySalary: number;
-  workScale: PayrollScale;
-  workDaysOverride?: number;
-  transportDailyValue: number;
-  advanceAlreadyPaid: boolean;
-  advancePaidAmount: number;
-  advancePaidDate: string;
-  transportAlreadyPaid: boolean;
-  transportPaidAmount: number;
-  transportPaidDate: string;
-  updatedAt: string;
-}
-
 const DEFAULT_CLIENT_PRE_LISTS_VERSION = '2026-08-04-vovo-nena-completa';
 
 const DEFAULT_VOVO_NENA_PRE_LIST: ClientPreList = {
@@ -1041,61 +1022,6 @@ const getLikelyBrand = (productName: string) => {
 
 const formatCurrency = (value: number) => `R$ ${value.toFixed(2).replace('.', ',')}`;
 
-const getCurrentPayrollMonth = () => formatDateOnly(new Date()).slice(0, 7);
-
-const getDaysInPayrollMonth = (payrollMonth: string) => {
-  const [year, month] = payrollMonth.split('-').map(Number);
-  if (!year || !month) return 30;
-  return new Date(year, month, 0).getDate();
-};
-
-const countPayrollWorkDays = (payrollMonth: string, scale: PayrollScale) => {
-  const [year, month] = payrollMonth.split('-').map(Number);
-  if (!year || !month) return 0;
-
-  const daysInMonth = getDaysInPayrollMonth(payrollMonth);
-  if (scale === '12x36') return Math.ceil(daysInMonth / 2);
-  if (scale === 'custom') return 0;
-
-  let workDays = 0;
-  for (let day = 1; day <= daysInMonth; day += 1) {
-    const weekDay = new Date(year, month - 1, day).getDay();
-    if (scale === '5x2' && weekDay >= 1 && weekDay <= 5) workDays += 1;
-    if (scale === '6x1' && weekDay !== 0) workDays += 1;
-  }
-
-  return workDays;
-};
-
-const getPayrollWorkDays = (employee: PayrollEmployee) =>
-  employee.workDaysOverride && employee.workDaysOverride > 0
-    ? employee.workDaysOverride
-    : countPayrollWorkDays(employee.payrollMonth, employee.workScale);
-
-const calculatePayroll = (employee: PayrollEmployee) => {
-  const workDays = getPayrollWorkDays(employee);
-  const dailySalary = employee.monthlySalary / 30;
-  const grossSalary = dailySalary * workDays;
-  const transportDue = employee.transportDailyValue * workDays;
-  const advanceDeduction = employee.advanceAlreadyPaid ? employee.advancePaidAmount : 0;
-  const transportAlreadyPaid = employee.transportAlreadyPaid
-    ? employee.transportPaidAmount > 0 ? employee.transportPaidAmount : transportDue
-    : 0;
-  const transportToPay = Math.max(0, transportDue - transportAlreadyPaid);
-  const netToPay = grossSalary + transportToPay - advanceDeduction;
-
-  return {
-    workDays,
-    dailySalary,
-    grossSalary,
-    transportDue,
-    transportAlreadyPaid,
-    transportToPay,
-    advanceDeduction,
-    netToPay
-  };
-};
-
 const getProductPackageValueLabel = (packageInfo: ProductPackageInfo) => {
   if (packageInfo.kind === 'weight') return 'kg';
   if (packageInfo.kind === 'volume') return 'L';
@@ -1223,7 +1149,7 @@ export default function App() {
     return localStorage.getItem('gemini_api_key') || '';
   });
   
-  const [activeTab, setActiveTab] = useState<'upload' | 'catalog' | 'simulator' | 'prelists' | 'payroll'>('simulator');
+  const [activeTab, setActiveTab] = useState<'upload' | 'catalog' | 'simulator' | 'prelists'>('simulator');
   
   // Upload States
   const [marketName, setMarketName] = useState('');
@@ -1313,35 +1239,7 @@ export default function App() {
       return [];
     }
   });
-  const [payrollEmployees, setPayrollEmployees] = useState<PayrollEmployee[]>(() => {
-    const saved = localStorage.getItem('payroll_employees');
-    if (!saved) return [];
 
-    try {
-      return JSON.parse(saved) as PayrollEmployee[];
-    } catch {
-      localStorage.removeItem('payroll_employees');
-      return [];
-    }
-  });
-  const [editingPayrollEmployeeId, setEditingPayrollEmployeeId] = useState<string | null>(null);
-  const [payrollForm, setPayrollForm] = useState<PayrollEmployee>(() => ({
-    id: String(Date.now()),
-    name: '',
-    payrollMonth: getCurrentPayrollMonth(),
-    monthlySalary: 0,
-    workScale: '6x1',
-    workDaysOverride: undefined,
-    transportDailyValue: 0,
-    advanceAlreadyPaid: false,
-    advancePaidAmount: 0,
-    advancePaidDate: '',
-    transportAlreadyPaid: false,
-    transportPaidAmount: 0,
-    transportPaidDate: '',
-    updatedAt: new Date().toISOString()
-  }));
-  
   // Save data to localStorage
   useEffect(() => {
     const activeProducts = removeExpiredProducts(products);
@@ -1381,10 +1279,6 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('client_pre_lists', JSON.stringify(clientPreLists));
   }, [clientPreLists]);
-
-  useEffect(() => {
-    localStorage.setItem('payroll_employees', JSON.stringify(payrollEmployees));
-  }, [payrollEmployees]);
 
   useEffect(() => {
     localStorage.setItem('gemini_api_key', apiKey);
@@ -2374,78 +2268,6 @@ export default function App() {
     setClientPreLists(prev => prev.filter(preList => preList.id !== id));
   };
 
-  const resetPayrollForm = () => {
-    setEditingPayrollEmployeeId(null);
-    setPayrollForm({
-      id: String(Date.now()),
-      name: '',
-      payrollMonth: getCurrentPayrollMonth(),
-      monthlySalary: 0,
-      workScale: '6x1',
-      workDaysOverride: undefined,
-      transportDailyValue: 0,
-      advanceAlreadyPaid: false,
-      advancePaidAmount: 0,
-      advancePaidDate: '',
-      transportAlreadyPaid: false,
-      transportPaidAmount: 0,
-      transportPaidDate: '',
-      updatedAt: new Date().toISOString()
-    });
-  };
-
-  const savePayrollEmployee = () => {
-    const employeeName = payrollForm.name.trim();
-    if (!employeeName) {
-      alert('Informe o nome do funcionário.');
-      return;
-    }
-
-    if (payrollForm.monthlySalary <= 0) {
-      alert('Informe o salário mensal do funcionário.');
-      return;
-    }
-
-    const employeeToSave: PayrollEmployee = {
-      ...payrollForm,
-      id: editingPayrollEmployeeId || payrollForm.id || String(Date.now()),
-      name: employeeName,
-      workDaysOverride: payrollForm.workDaysOverride && payrollForm.workDaysOverride > 0
-        ? payrollForm.workDaysOverride
-        : undefined,
-      advancePaidAmount: payrollForm.advanceAlreadyPaid ? payrollForm.advancePaidAmount : 0,
-      advancePaidDate: payrollForm.advanceAlreadyPaid ? payrollForm.advancePaidDate : '',
-      transportPaidAmount: payrollForm.transportAlreadyPaid ? payrollForm.transportPaidAmount : 0,
-      transportPaidDate: payrollForm.transportAlreadyPaid ? payrollForm.transportPaidDate : '',
-      updatedAt: new Date().toISOString()
-    };
-
-    setPayrollEmployees(prev => {
-      const existingIndex = prev.findIndex(employee => employee.id === employeeToSave.id);
-      if (existingIndex > -1) {
-        const next = [...prev];
-        next[existingIndex] = employeeToSave;
-        return next;
-      }
-
-      return [employeeToSave, ...prev];
-    });
-
-    resetPayrollForm();
-  };
-
-  const editPayrollEmployee = (employee: PayrollEmployee) => {
-    setEditingPayrollEmployeeId(employee.id);
-    setPayrollForm(employee);
-    setActiveTab('payroll');
-  };
-
-  const deletePayrollEmployee = (id: string) => {
-    if (!window.confirm('Deseja excluir este cadastro da folha?')) return;
-    setPayrollEmployees(prev => prev.filter(employee => employee.id !== id));
-    if (editingPayrollEmployeeId === id) resetPayrollForm();
-  };
-
   const exportClientPreListPdf = (preList: ClientPreList) => {
     exportBestPurchasePdf(
       preList.items,
@@ -3140,13 +2962,6 @@ export default function App() {
           <FileTextIcon size={18} />
           Pré-listas ({clientPreLists.length})
         </button>
-        <button
-          className={`tab-btn ${activeTab === 'payroll' ? 'active' : ''}`}
-          onClick={() => setActiveTab('payroll')}
-        >
-          <Calendar size={18} />
-          Folha ({payrollEmployees.length})
-        </button>
         <button 
           className={`tab-btn ${activeTab === 'upload' ? 'active' : ''}`}
           onClick={() => setActiveTab('upload')}
@@ -3811,280 +3626,6 @@ export default function App() {
               })}
             </div>
           )}
-        </div>
-      )}
-
-      {activeTab === 'payroll' && (
-        <div className="simulator-layout">
-          <div className="glass-panel">
-            <h2 className="product-name" style={{ fontSize: '1.4rem', marginBottom: '0.35rem' }}>
-              Folha de Pagamento
-            </h2>
-            <p className="text-secondary-color" style={{ fontSize: '0.85rem', marginBottom: '1.2rem' }}>
-              Cadastre a escala, dias trabalhados, vale transporte e adiantamentos para calcular o líquido a pagar.
-            </p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.45rem', fontSize: '0.82rem' }}>Funcionário</label>
-                <input
-                  className="input-glow"
-                  value={payrollForm.name}
-                  onChange={(e) => setPayrollForm(prev => ({ ...prev, name: e.target.value }))}
-                  placeholder="Nome do funcionário"
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.45rem', fontSize: '0.82rem' }}>Mês da folha</label>
-                <input
-                  type="month"
-                  className="input-glow"
-                  value={payrollForm.payrollMonth}
-                  onChange={(e) => setPayrollForm(prev => ({ ...prev, payrollMonth: e.target.value }))}
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.45rem', fontSize: '0.82rem' }}>Salário mensal</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="input-glow"
-                  value={payrollForm.monthlySalary || ''}
-                  onChange={(e) => setPayrollForm(prev => ({ ...prev, monthlySalary: Number(e.target.value) || 0 }))}
-                  placeholder="0,00"
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.45rem', fontSize: '0.82rem' }}>Escala de trabalho</label>
-                <select
-                  className="select-filter"
-                  value={payrollForm.workScale}
-                  onChange={(e) => setPayrollForm(prev => ({
-                    ...prev,
-                    workScale: e.target.value as PayrollScale,
-                    workDaysOverride: e.target.value === 'custom' ? prev.workDaysOverride : undefined
-                  }))}
-                  style={{ width: '100%' }}
-                >
-                  <option value="6x1">6x1 - segunda a sábado</option>
-                  <option value="5x2">5x2 - segunda a sexta</option>
-                  <option value="12x36">12x36 - dias alternados</option>
-                  <option value="custom">Informar dias manualmente</option>
-                </select>
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.45rem', fontSize: '0.82rem' }}>Dias trabalhados</label>
-                <input
-                  type="number"
-                  min="0"
-                  className="input-glow"
-                  value={payrollForm.workDaysOverride ?? ''}
-                  onChange={(e) => setPayrollForm(prev => ({
-                    ...prev,
-                    workDaysOverride: e.target.value === '' ? undefined : Number(e.target.value) || 0
-                  }))}
-                  placeholder={`${countPayrollWorkDays(payrollForm.payrollMonth, payrollForm.workScale)} automático`}
-                  style={{ width: '100%' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '0.45rem', fontSize: '0.82rem' }}>Vale transporte por dia</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  className="input-glow"
-                  value={payrollForm.transportDailyValue || ''}
-                  onChange={(e) => setPayrollForm(prev => ({ ...prev, transportDailyValue: Number(e.target.value) || 0 }))}
-                  placeholder="0,00"
-                  style={{ width: '100%' }}
-                />
-              </div>
-            </div>
-
-            <div style={{ marginTop: '1rem', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.85rem' }}>
-              <div className="client-prelist-box" style={{ marginTop: 0 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', fontWeight: 700 }}>
-                  <input
-                    type="checkbox"
-                    checked={payrollForm.advanceAlreadyPaid}
-                    onChange={(e) => setPayrollForm(prev => ({
-                      ...prev,
-                      advanceAlreadyPaid: e.target.checked,
-                      advancePaidAmount: e.target.checked ? prev.advancePaidAmount : 0,
-                      advancePaidDate: e.target.checked ? prev.advancePaidDate : ''
-                    }))}
-                  />
-                  Adiantamento já pago
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginTop: '0.75rem' }}>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="input-glow"
-                    value={payrollForm.advancePaidAmount || ''}
-                    onChange={(e) => setPayrollForm(prev => ({ ...prev, advancePaidAmount: Number(e.target.value) || 0 }))}
-                    placeholder="Valor"
-                    disabled={!payrollForm.advanceAlreadyPaid}
-                  />
-                  <input
-                    type="date"
-                    className="input-glow"
-                    value={payrollForm.advancePaidDate}
-                    onChange={(e) => setPayrollForm(prev => ({ ...prev, advancePaidDate: e.target.value }))}
-                    disabled={!payrollForm.advanceAlreadyPaid}
-                  />
-                </div>
-              </div>
-
-              <div className="client-prelist-box" style={{ marginTop: 0 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '0.45rem', fontSize: '0.85rem', fontWeight: 700 }}>
-                  <input
-                    type="checkbox"
-                    checked={payrollForm.transportAlreadyPaid}
-                    onChange={(e) => setPayrollForm(prev => ({
-                      ...prev,
-                      transportAlreadyPaid: e.target.checked,
-                      transportPaidAmount: e.target.checked ? prev.transportPaidAmount : 0,
-                      transportPaidDate: e.target.checked ? prev.transportPaidDate : ''
-                    }))}
-                  />
-                  Vale transporte já pago
-                </label>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.6rem', marginTop: '0.75rem' }}>
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    className="input-glow"
-                    value={payrollForm.transportPaidAmount || ''}
-                    onChange={(e) => setPayrollForm(prev => ({ ...prev, transportPaidAmount: Number(e.target.value) || 0 }))}
-                    placeholder="Valor pago"
-                    disabled={!payrollForm.transportAlreadyPaid}
-                  />
-                  <input
-                    type="date"
-                    className="input-glow"
-                    value={payrollForm.transportPaidDate}
-                    onChange={(e) => setPayrollForm(prev => ({ ...prev, transportPaidDate: e.target.value }))}
-                    disabled={!payrollForm.transportAlreadyPaid}
-                  />
-                </div>
-              </div>
-            </div>
-
-            {(() => {
-              const preview = calculatePayroll(payrollForm);
-              return (
-                <div className="prelist-summary" style={{ marginTop: '1rem' }}>
-                  <div>
-                    <span className="metric-label">Dias</span>
-                    <strong>{preview.workDays}</strong>
-                  </div>
-                  <div>
-                    <span className="metric-label">Bruto</span>
-                    <strong>{formatCurrency(preview.grossSalary)}</strong>
-                  </div>
-                  <div>
-                    <span className="metric-label">VT a pagar</span>
-                    <strong>{formatCurrency(preview.transportToPay)}</strong>
-                  </div>
-                  <div>
-                    <span className="metric-label">Líquido</span>
-                    <strong className="text-success">{formatCurrency(preview.netToPay)}</strong>
-                  </div>
-                </div>
-              );
-            })()}
-
-            <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1rem', flexWrap: 'wrap' }}>
-              <button className="btn-primary" onClick={savePayrollEmployee}>
-                <CheckCircle size={16} /> {editingPayrollEmployeeId ? 'Atualizar folha' : 'Salvar folha'}
-              </button>
-              <button className="btn-secondary" onClick={resetPayrollForm}>
-                Limpar
-              </button>
-            </div>
-          </div>
-
-          <div className="glass-panel">
-            <h2 className="product-name" style={{ fontSize: '1.4rem', marginBottom: '1rem' }}>
-              Funcionários cadastrados
-            </h2>
-
-            {payrollEmployees.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '3rem 1rem', color: 'var(--text-secondary)' }}>
-                <Calendar size={40} style={{ opacity: 0.35, marginBottom: '0.5rem' }} />
-                <p>Nenhuma folha cadastrada.</p>
-              </div>
-            ) : (
-              <div className="prelist-grid">
-                {payrollEmployees.map(employee => {
-                  const payroll = calculatePayroll(employee);
-                  return (
-                    <div key={employee.id} className="prelist-card">
-                      <div className="prelist-card-top">
-                        <div>
-                          <div className="product-category-badge">{employee.payrollMonth}</div>
-                          <h3 className="product-name" style={{ marginBottom: '0.3rem' }}>{employee.name}</h3>
-                          <p className="text-secondary-color" style={{ fontSize: '0.82rem' }}>
-                            Escala {employee.workScale} - {payroll.workDays} dia(s)
-                          </p>
-                        </div>
-                        <button
-                          className="btn-icon text-danger"
-                          title="Excluir folha"
-                          onClick={() => deletePayrollEmployee(employee.id)}
-                        >
-                          <Trash2 size={14} />
-                        </button>
-                      </div>
-
-                      <div className="prelist-summary">
-                        <div>
-                          <span className="metric-label">Bruto</span>
-                          <strong>{formatCurrency(payroll.grossSalary)}</strong>
-                        </div>
-                        <div>
-                          <span className="metric-label">VT total</span>
-                          <strong>{formatCurrency(payroll.transportDue)}</strong>
-                        </div>
-                        <div>
-                          <span className="metric-label">Descontos</span>
-                          <strong>{formatCurrency(payroll.advanceDeduction + payroll.transportAlreadyPaid)}</strong>
-                        </div>
-                        <div>
-                          <span className="metric-label">Líquido</span>
-                          <strong className="text-success">{formatCurrency(payroll.netToPay)}</strong>
-                        </div>
-                      </div>
-
-                      <div className="prelist-items-preview">
-                        {employee.advanceAlreadyPaid && (
-                          <span>Adiantamento: {formatCurrency(employee.advancePaidAmount)} {employee.advancePaidDate ? `em ${employee.advancePaidDate.split('-').reverse().join('/')}` : ''}</span>
-                        )}
-                        {employee.transportAlreadyPaid && (
-                          <span>VT pago: {formatCurrency(payroll.transportAlreadyPaid)} {employee.transportPaidDate ? `em ${employee.transportPaidDate.split('-').reverse().join('/')}` : ''}</span>
-                        )}
-                        <span>VT a pagar: {formatCurrency(payroll.transportToPay)}</span>
-                      </div>
-
-                      <div className="prelist-actions">
-                        <button className="btn-secondary" onClick={() => editPayrollEmployee(employee)}>
-                          <Pencil size={16} /> Editar
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
         </div>
       )}
 
