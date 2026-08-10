@@ -1857,6 +1857,14 @@ export default function App() {
     window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank');
   };
 
+  const escapeHtml = (value: string | number | undefined | null) =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+
   const openPrintableReport = (title: string, bodyHtml: string, city = selectedCity, subtitle?: string) => {
     const pdfFileName = getPricesPdfFileName();
     const reportWindow = window.open('', '_blank');
@@ -2805,6 +2813,124 @@ export default function App() {
     reportWindow.document.close();
   };
 
+  const exportManualQuoteProductsPdf = () => {
+    const sourceProducts = productsMatchingFiltersWithoutExpiry.length > 0
+      ? productsMatchingFiltersWithoutExpiry
+      : products;
+
+    if (sourceProducts.length === 0) {
+      alert('Nenhum produto cadastrado para gerar o PDF de orçamento manual.');
+      return;
+    }
+
+    const uniqueProducts = Array.from(
+      sourceProducts.reduce((acc, product) => {
+        const key = [
+          normalizeSearchText(product.name),
+          normalizeSearchText(product.unit),
+          normalizeSearchText(product.category)
+        ].join('|');
+
+        if (!acc.has(key)) acc.set(key, product);
+        return acc;
+      }, new Map<string, Product>())
+    )
+      .map(([, product]) => product)
+      .sort((a, b) =>
+        a.category.localeCompare(b.category, 'pt-BR') ||
+        a.name.localeCompare(b.name, 'pt-BR') ||
+        a.unit.localeCompare(b.unit, 'pt-BR')
+      );
+
+    const rowsHtml = `
+      <div class="quote-header">
+        <div><strong>Mercado:</strong> ________________________________________________</div>
+        <div><strong>Responsável:</strong> _______________________ <strong>Data:</strong> ____/____/______</div>
+      </div>
+      <table>
+        <thead>
+          <tr>
+            <th>Produto</th>
+            <th>Marca</th>
+            <th>UND</th>
+            <th>Categoria</th>
+            <th class="write-cell">Qtd Caixa Master</th>
+            <th class="write-cell">Valor Unit.</th>
+            <th>Observações</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${uniqueProducts.map(product => `
+            <tr>
+              <td>${escapeHtml(product.name)}</td>
+              <td>${escapeHtml(getLikelyBrand(product.name))}</td>
+              <td>${escapeHtml(product.unit || '-')}</td>
+              <td>${escapeHtml(product.category || '-')}</td>
+              <td class="write-cell">&nbsp;</td>
+              <td class="write-cell">&nbsp;</td>
+              <td>&nbsp;</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+      <div class="note">
+        Folha para cotação manual: preencher quantidade por caixa master, valor unitário e observações do mercado.
+      </div>
+    `;
+
+    const reportWindow = window.open('', '_blank');
+    if (!reportWindow) {
+      alert('O navegador bloqueou a janela do PDF. Permita pop-ups para este site.');
+      return;
+    }
+    const pdfFileName = getPricesPdfFileName();
+
+    reportWindow.document.write(`
+      <!doctype html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>${pdfFileName}</title>
+          <style>
+            @page { size: A4; margin: 10mm; }
+            body { font-family: Arial, sans-serif; color: #111827; }
+            h1 { font-size: 20px; margin: 0 0 6px; }
+            .meta, .note { font-size: 11px; color: #4b5563; margin-bottom: 12px; }
+            .quote-header {
+              display: grid;
+              gap: 7px;
+              border: 1px solid #d1d5db;
+              padding: 9px;
+              margin: 12px 0;
+              font-size: 12px;
+            }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; break-inside: auto; page-break-inside: auto; }
+            thead { display: table-header-group; }
+            tr { break-inside: avoid; page-break-inside: avoid; }
+            th, td { border: 1px solid #9ca3af; padding: 6px 7px; font-size: 10px; text-align: left; vertical-align: top; }
+            th { background: #f3f4f6; font-weight: 700; }
+            td:nth-child(3), th:nth-child(3) { white-space: nowrap; }
+            .write-cell { width: 82px; text-align: center; }
+            tbody td.write-cell { height: 24px; }
+          </style>
+        </head>
+        <body>
+          <h1>Orçamento Manual de Produtos</h1>
+          <div class="meta">
+            Gerado em ${new Date().toLocaleDateString('pt-BR')} - ${uniqueProducts.length} produtos listados
+          </div>
+          ${rowsHtml}
+          <script>
+            window.onload = () => {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+    reportWindow.document.close();
+  };
+
   const exportBestPricesPdf = () => {
     const sourceProducts = filteredProducts;
 
@@ -3493,6 +3619,14 @@ export default function App() {
               disabled={products.length === 0}
             >
               <FileTextIcon size={16} /> Gerar PDF
+            </button>
+
+            <button
+              className="btn-secondary"
+              onClick={exportManualQuoteProductsPdf}
+              disabled={products.length === 0}
+            >
+              <Pencil size={16} /> PDF Orçamento Manual
             </button>
 
             <button
