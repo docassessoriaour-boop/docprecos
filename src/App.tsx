@@ -2933,60 +2933,59 @@ export default function App() {
       return year && month && day ? `${day}/${month}/${year}` : value;
     };
 
-    const bestByGroup = Array.from(
-      sourceProducts.reduce((acc, product) => {
-        const group = getProductGroup(product.name, product.unit);
-        const currentBest = acc.get(group);
-        if (
-          !currentBest ||
-          compareProductsByPackageValue(product, currentBest) < 0
-        ) {
-          acc.set(group, product);
-        }
-        return acc;
-      }, new Map<string, Product>())
-    )
-      .map(([group, product]) => ({ group, product }))
-      .sort((a, b) =>
-        a.product.market.localeCompare(b.product.market, 'pt-BR') ||
-        a.group.localeCompare(b.group, 'pt-BR')
-      );
+    const groupedProductsByMarket = sourceProducts.reduce((acc, product) => {
+      const marketProducts = acc.get(product.market) || [];
+      marketProducts.push(product);
+      acc.set(product.market, marketProducts);
+      return acc;
+    }, new Map<string, Product[]>());
 
-    const bestByMarket = Array.from(
-      bestByGroup.reduce((acc, item) => {
-        const marketItems = acc.get(item.product.market) || [];
-        marketItems.push(item);
-        acc.set(item.product.market, marketItems);
-        return acc;
-      }, new Map<string, { group: string, product: Product }[]>())
-    )
-      .map(([market, items]) => ({
-        market,
-        items: items.sort((a, b) => a.group.localeCompare(b.group, 'pt-BR')),
-        subtotal: items.reduce((sum, item) => sum + item.product.price, 0)
-      }))
+    const bestByMarket = Array.from(groupedProductsByMarket)
+      .map(([market, marketProducts]) => {
+        const items = Array.from(
+          marketProducts.reduce((acc, product) => {
+            const group = getProductGroup(product.name, product.unit);
+            const currentBest = acc.get(group);
+            if (
+              !currentBest ||
+              compareProductsByPackageValue(product, currentBest) < 0
+            ) {
+              acc.set(group, product);
+            }
+            return acc;
+          }, new Map<string, Product>())
+        )
+          .map(([group, product]) => ({ group, product }))
+          .sort((a, b) => a.group.localeCompare(b.group, 'pt-BR'));
+
+        return {
+          market,
+          items,
+          subtotal: items.reduce((sum, item) => sum + item.product.price, 0)
+        };
+      })
+      .filter(marketGroup => marketGroup.items.length > 0)
       .sort((a, b) => a.market.localeCompare(b.market, 'pt-BR'));
 
+    const totalItems = bestByMarket.reduce((sum, marketGroup) => sum + marketGroup.items.length, 0);
     const grandTotal = bestByMarket.reduce((sum, marketGroup) => sum + marketGroup.subtotal, 0);
 
-    const rowsHtml = `
-      <table>
-        <thead>
-          <tr>
-            <th>Item</th>
-            <th>Produto encontrado</th>
-            <th>UND</th>
-            <th>Cidade</th>
-            <th>Melhor valor</th>
-            <th>R$/Base</th>
-            <th>Validade da promocao</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${bestByMarket.map(({ market, items, subtotal }) => `
-            <tr class="market-row">
-              <td colspan="6">${market}</td>
+    const rowsHtml = bestByMarket.map(({ market, items, subtotal }) => `
+      <section class="market-section">
+        <h2>${market}</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Produto encontrado</th>
+              <th>UND</th>
+              <th>Cidade</th>
+              <th>Melhor valor</th>
+              <th>R$/Base</th>
+              <th>Validade da promocao</th>
             </tr>
+          </thead>
+          <tbody>
             ${items.map(({ group, product }) => `
             <tr>
               <td>${group}</td>
@@ -3003,11 +3002,19 @@ export default function App() {
               <td>${formatCurrency(subtotal)}</td>
               <td colspan="2">${items.length} item(ns)</td>
             </tr>
-          `).join('')}
+          </tbody>
+        </table>
+      </section>
+    `).join('');
+
+    const summaryHtml = `
+      <table class="summary-table">
+        <tbody>
           <tr class="total-row">
-            <td colspan="4">Total geral</td>
+            <td>Total geral das secoes</td>
             <td>${formatCurrency(grandTotal)}</td>
-            <td colspan="2">${bestByGroup.length} item(ns)</td>
+            <td>${totalItems} item(ns)</td>
+            <td>${bestByMarket.length} mercado(s)</td>
           </tr>
         </tbody>
       </table>
@@ -3030,25 +3037,30 @@ export default function App() {
             @page { size: A4; margin: 12mm; }
             body { font-family: Arial, sans-serif; color: #111827; }
             h1 { font-size: 20px; margin: 0 0 6px; }
+            h2 { font-size: 15px; margin: 16px 0 8px; color: #111827; }
             .meta { font-size: 11px; color: #4b5563; margin-bottom: 16px; }
-            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+            table { width: 100%; border-collapse: collapse; margin-bottom: 12px; break-inside: auto; page-break-inside: auto; }
+            thead { display: table-header-group; }
+            tr { break-inside: avoid; page-break-inside: avoid; }
             th, td { border: 1px solid #d1d5db; padding: 6px 7px; font-size: 10px; text-align: left; vertical-align: top; }
             th { background: #f3f4f6; font-weight: 700; }
             td:nth-child(3), th:nth-child(3) { white-space: nowrap; }
             td:nth-child(5), th:nth-child(5) { text-align: right; white-space: nowrap; }
             td:nth-child(6), th:nth-child(6) { text-align: right; white-space: nowrap; }
             td:nth-child(7), th:nth-child(7) { white-space: nowrap; }
-            .market-row td { background: #e5e7eb; font-weight: 700; font-size: 12px; color: #111827; }
+            .market-section { break-inside: avoid; page-break-inside: avoid; margin-bottom: 14px; }
             .subtotal-row td { background: #f9fafb; font-weight: 700; }
+            .summary-table { margin-top: 14px; }
             .total-row td { background: #111827; color: white; font-weight: 700; font-size: 11px; }
           </style>
         </head>
         <body>
-          <h1>Melhores Precos por Item</h1>
+          <h1>Melhores Precos por Mercado</h1>
           <div class="meta">
-            Gerado em ${new Date().toLocaleDateString('pt-BR')} - ${bestByGroup.length} itens agrupados
+            Gerado em ${new Date().toLocaleDateString('pt-BR')} - ${totalItems} itens agrupados em ${bestByMarket.length} mercado(s)
           </div>
           ${rowsHtml}
+          ${summaryHtml}
           <script>
             window.onload = () => {
               window.print();
