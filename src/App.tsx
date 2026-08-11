@@ -487,9 +487,42 @@ const parseDecimalNumber = (value: string) => Number(value.replace(',', '.'));
 const formatPackageAmount = (amount: number) =>
   Number.isInteger(amount) ? String(amount) : String(amount).replace('.', ',');
 
+const normalizePackageText = (value: string) =>
+  value
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/(\d)\s*([,.])\s*(\d)/g, '$1$2$3')
+    .replace(/[^a-z0-9,.\/\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const packageUnitPattern = 'kg|quilo|quilos|g|gr|gramas|l|lt|litro|litros|ml|un|und|unid|unidade|unidades';
+
+const isCountPackageUnit = (unit: string) =>
+  ['un', 'und', 'unid', 'unidade', 'unidades'].includes(unit);
+
+const formatNormalizedPackageLabel = (kind: ProductPackageKind, normalizedAmount: number) => {
+  if (kind === 'weight') {
+    return normalizedAmount >= 1000
+      ? `${formatPackageAmount(normalizedAmount / 1000)}kg`
+      : `${formatPackageAmount(normalizedAmount)}g`;
+  }
+
+  if (kind === 'volume') {
+    return normalizedAmount >= 1000
+      ? `${formatPackageAmount(normalizedAmount / 1000)}L`
+      : `${formatPackageAmount(normalizedAmount)}ml`;
+  }
+
+  return `${formatPackageAmount(normalizedAmount)}un`;
+};
+
 const getProductPackageInfo = (value: string): ProductPackageInfo | null => {
-  const text = normalizeSearchText(value);
-  const packageMatch = text.match(/(?:^|\s)(\d+(?:[,.]\d+)?)\s*(kg|quilo|quilos|g|gr|gramas|l|lt|litro|litros|ml|un|und|unid|unidade|unidades)(?:\s|$)/);
+  const text = normalizePackageText(value);
+  const packageMatches = Array.from(text.matchAll(new RegExp(`(?:^|\\s)(\\d+(?:[,.]\\d+)?)\\s*(${packageUnitPattern})(?=\\s|$)`, 'g')));
+  const packageMatch = packageMatches.find(match => !isCountPackageUnit(match[2])) || packageMatches[0];
+
   if (!packageMatch) {
     const standaloneUnitMatch = text.match(/(?:^|\s)(kg|quilo|quilos|l|lt|litro|litros|un|und|unid|unidade|unidades)(?:\s|$)/);
     if (!standaloneUnitMatch) return null;
@@ -508,21 +541,33 @@ const getProductPackageInfo = (value: string): ProductPackageInfo | null => {
 
   const amount = parseDecimalNumber(packageMatch[1]);
   const rawUnit = packageMatch[2];
+  const countMultiplier = packageMatches
+    .filter(match => match !== packageMatch && isCountPackageUnit(match[2]))
+    .map(match => parseDecimalNumber(match[1]))
+    .find(matchAmount => Number.isFinite(matchAmount) && matchAmount > 1);
+  const looseMultiplier = text.match(/(?:^|\s)(?:c|com|pack|kit|leve|pacote)\s*(?:\/\s*)?(\d+)(?:\s|$)/);
+  const multiplier = !isCountPackageUnit(rawUnit)
+    ? (countMultiplier || (looseMultiplier ? Number(looseMultiplier[1]) : 1))
+    : 1;
 
   if (['kg', 'quilo', 'quilos'].includes(rawUnit)) {
-    return { kind: 'weight', amount, unit: 'kg', normalizedAmount: amount * 1000, label: `${formatPackageAmount(amount)}kg` };
+    const normalizedAmount = amount * 1000 * multiplier;
+    return { kind: 'weight', amount: amount * multiplier, unit: 'kg', normalizedAmount, label: formatNormalizedPackageLabel('weight', normalizedAmount) };
   }
 
   if (['g', 'gr', 'gramas'].includes(rawUnit)) {
-    return { kind: 'weight', amount, unit: 'g', normalizedAmount: amount, label: `${formatPackageAmount(amount)}g` };
+    const normalizedAmount = amount * multiplier;
+    return { kind: 'weight', amount: normalizedAmount, unit: 'g', normalizedAmount, label: formatNormalizedPackageLabel('weight', normalizedAmount) };
   }
 
   if (['l', 'lt', 'litro', 'litros'].includes(rawUnit)) {
-    return { kind: 'volume', amount, unit: 'l', normalizedAmount: amount * 1000, label: `${formatPackageAmount(amount)}L` };
+    const normalizedAmount = amount * 1000 * multiplier;
+    return { kind: 'volume', amount: amount * multiplier, unit: 'l', normalizedAmount, label: formatNormalizedPackageLabel('volume', normalizedAmount) };
   }
 
   if (rawUnit === 'ml') {
-    return { kind: 'volume', amount, unit: 'ml', normalizedAmount: amount, label: `${formatPackageAmount(amount)}ml` };
+    const normalizedAmount = amount * multiplier;
+    return { kind: 'volume', amount: normalizedAmount, unit: 'ml', normalizedAmount, label: formatNormalizedPackageLabel('volume', normalizedAmount) };
   }
 
   return { kind: 'count', amount, unit: 'un', normalizedAmount: amount, label: `${formatPackageAmount(amount)}un` };
