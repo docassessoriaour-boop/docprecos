@@ -1995,6 +1995,102 @@ export default function App() {
     openPrintableReport(title, bodyHtml, city, subtitle);
   };
 
+  const exportBestValueByMarketPdf = (
+    list = shoppingList,
+    city = selectedCity,
+    title = 'Mais Vantajoso por Mercado - Calculado por Embalagem',
+    subtitle?: string
+  ) => {
+    if (list.length === 0) {
+      alert('Adicione itens na lista de compras antes de gerar o PDF.');
+      return;
+    }
+
+    const comparison = list === shoppingList && city === selectedCity
+      ? currentComparison
+      : calculatePurchaseComparison(list, city);
+    const foundItems = comparison.optimizedItems.filter(item => item.market !== 'Não encontrado');
+
+    if (foundItems.length === 0) {
+      alert('Nenhum item com preço encontrado para gerar o PDF.');
+      return;
+    }
+
+    const groupedItems = foundItems.reduce<Record<string, OptimizedItem[]>>((acc, item) => {
+      const market = item.market || 'Não encontrado';
+      acc[market] = acc[market] || [];
+      acc[market].push(item);
+      return acc;
+    }, {});
+
+    const bodyHtml = `
+      <div class="summary">
+        <div class="box">
+          <div class="label">Total mais vantajoso</div>
+          <div class="value">R$ ${comparison.optimizedTotal.toFixed(2).replace('.', ',')}</div>
+        </div>
+        <div class="box">
+          <div class="label">Itens encontrados</div>
+          <div class="value">${foundItems.length}</div>
+        </div>
+        <div class="box">
+          <div class="label">Itens sem preço</div>
+          <div class="value">${comparison.optimizedMissingCount}</div>
+        </div>
+      </div>
+      ${Object.entries(groupedItems)
+        .sort(([marketA], [marketB]) => marketA.localeCompare(marketB, 'pt-BR'))
+        .map(([market, items]) => {
+          const marketSubtotal = items.reduce((total, item) => total + item.subtotal, 0);
+
+          return `
+            <h2>${market}</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Item da lista</th>
+                  <th>Produto encontrado</th>
+                  <th>Marca</th>
+                  <th>UND</th>
+                  <th class="money">Qtd</th>
+                  <th class="money">Valor Emb.</th>
+                  <th class="money">R$/Base</th>
+                  <th>Validade</th>
+                  <th class="money">Subtotal</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${items
+                  .sort((a, b) => (a.catalogName || a.name).localeCompare(b.catalogName || b.name, 'pt-BR'))
+                  .map(item => `
+                    <tr>
+                      <td>${item.name}</td>
+                      <td>${item.catalogName || item.name}</td>
+                      <td>${getLikelyBrand(item.catalogName || item.name)}</td>
+                      <td>${item.unit || '-'}</td>
+                      <td class="money">${item.quantity}</td>
+                      <td class="money">R$ ${item.price.toFixed(2).replace('.', ',')}</td>
+                      <td class="money">${item.packageValueLabel || '-'}</td>
+                      <td>${formatPromotionDate(item.endDate)}</td>
+                      <td class="money">R$ ${item.subtotal.toFixed(2).replace('.', ',')}</td>
+                    </tr>
+                  `).join('')}
+                <tr>
+                  <th colspan="8" class="money">Subtotal ${market}</th>
+                  <th class="money">R$ ${marketSubtotal.toFixed(2).replace('.', ',')}</th>
+                </tr>
+              </tbody>
+            </table>
+          `;
+        }).join('')}
+      <div class="note">
+        Este relatório separa por mercado apenas as opções vencedoras da lista. A escolha automática primeiro calcula o custo por kg, litro ou unidade da embalagem identificada e só depois separa a compra por mercado.
+      </div>
+    `;
+
+    openPrintableReport(title, bodyHtml, city, subtitle);
+  };
+
   const exportBestPriceByItemPdf = (
     list = shoppingList,
     city = selectedCity,
@@ -2302,6 +2398,15 @@ export default function App() {
     );
   };
 
+  const exportClientPreListBestValueByMarketPdf = (preList: ClientPreList) => {
+    exportBestValueByMarketPdf(
+      preList.items,
+      preList.city,
+      'Mais Vantajoso por Mercado - Calculado por Embalagem',
+      `Cliente: ${preList.clientName} - Pré-lista: ${preList.listName}`
+    );
+  };
+
   const exportClientPreListBestPriceByItemPdf = (preList: ClientPreList) => {
     exportBestPriceByItemPdf(
       preList.items,
@@ -2380,8 +2485,9 @@ export default function App() {
       .map(product => ({ product, score: getProductMatchScore(itemName, product) }))
       .filter(({ score }) => score >= 0.45)
       .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        return compareProductsByPackageValue(a.product, b.product);
+        const packageValueComparison = compareProductsByPackageValue(a.product, b.product);
+        if (packageValueComparison !== 0) return packageValueComparison;
+        return b.score - a.score;
       });
 
     return rankedMatches[0]?.product;
@@ -2417,8 +2523,9 @@ export default function App() {
         return true;
       })
       .sort((a, b) => {
-        if (b.score !== a.score) return b.score - a.score;
-        return compareProductsByPackageValue(a.product, b.product);
+        const packageValueComparison = compareProductsByPackageValue(a.product, b.product);
+        if (packageValueComparison !== 0) return packageValueComparison;
+        return b.score - a.score;
       })
       .map(({ product }) => product);
   };
@@ -3618,6 +3725,12 @@ export default function App() {
                       </button>
                       <button
                         className="btn-secondary"
+                        onClick={() => exportClientPreListBestValueByMarketPdf(preList)}
+                      >
+                        <TrendingDown size={16} /> PDF embalagem por mercado
+                      </button>
+                      <button
+                        className="btn-secondary"
                         onClick={() => exportClientPreListBestPriceByItemPdf(preList)}
                       >
                         <CheckCircle size={16} /> PDF melhor por item
@@ -3911,6 +4024,13 @@ export default function App() {
                     style={{ justifyContent: 'center', fontWeight: '700' }}
                   >
                     <TrendingDown size={16} /> PDF Melhores Preços
+                  </button>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => exportBestValueByMarketPdf()}
+                    style={{ justifyContent: 'center', fontWeight: '700' }}
+                  >
+                    <TrendingDown size={16} /> PDF Embalagem por Mercado
                   </button>
                   <button
                     className="btn-secondary"
