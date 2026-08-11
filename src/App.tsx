@@ -808,13 +808,11 @@ const getProfileProductGroupLabel = (value: string) => {
   if (profile.family === 'unknown') return null;
 
   const attributeLabel = getAttributeGroupLabel(profile.attributes);
-  const packageLabel = profile.packageInfo?.label;
 
   return [
     productFamilyLabels[profile.family],
     profile.subtype,
-    attributeLabel,
-    packageLabel
+    attributeLabel
   ].filter(Boolean).join(' ');
 };
 
@@ -1064,6 +1062,18 @@ const getProductPackageValue = (product: Product) => {
   };
 };
 
+const compareProductsByPackageValue = (a: Product, b: Product) => {
+  const aValue = getProductPackageValue(a)?.valuePrice;
+  const bValue = getProductPackageValue(b)?.valuePrice;
+
+  if (aValue !== undefined && bValue !== undefined && aValue !== bValue) return aValue - bValue;
+  if (aValue !== undefined && bValue === undefined) return -1;
+  if (aValue === undefined && bValue !== undefined) return 1;
+  if (a.price !== b.price) return a.price - b.price;
+  return a.market.localeCompare(b.market, 'pt-BR') ||
+    a.name.localeCompare(b.name, 'pt-BR');
+};
+
 const getReportShift = (date = new Date()) => {
   const hour = date.getHours();
   if (hour < 9) return 'TURNO1';
@@ -1139,8 +1149,7 @@ const getProductGroup = (productName: string, unit = '') => {
     const attributeLabel = getAttributeGroupLabel(profile.attributes);
     return [
       group.label,
-      attributeLabel,
-      profile.packageInfo?.label
+      attributeLabel
     ].filter(Boolean).join(' ');
   }
 
@@ -1747,7 +1756,7 @@ export default function App() {
     optimizedItems.forEach(item => {
       const isFound = item.market !== 'Não encontrado';
       if (isFound) {
-        msg += `- ${item.quantity}x _${item.name}_ ➜ *R$ ${item.price.toFixed(2)}* (no ${item.market}) - ${formatPromotionDate(item.endDate)}\n`;
+        msg += `- ${item.quantity}x _${item.name}_ ➜ *R$ ${item.price.toFixed(2)}*${item.packageValueLabel ? ` (${item.packageValueLabel})` : ''} (no ${item.market}) - ${formatPromotionDate(item.endDate)}\n`;
       } else {
         msg += `- ${item.quantity}x _${item.name}_ ➜ *Não encontrado*\n`;
       }
@@ -1849,8 +1858,10 @@ export default function App() {
             <tr>
               <th>Produto</th>
               <th>Marca</th>
+              <th>UND</th>
               <th class="money">Qtd</th>
               <th class="money">Valor Unit.</th>
+              <th class="money">R$/Base</th>
               <th class="money">Subtotal</th>
             </tr>
           </thead>
@@ -1861,13 +1872,15 @@ export default function App() {
               <tr>
                 <td>${item.catalogName || item.itemName}</td>
                 <td>${getLikelyBrand(item.catalogName || item.itemName)}</td>
+                <td>${item.unit || '-'}</td>
                 <td class="money">${item.quantity}</td>
                 <td class="money">${item.found ? `R$ ${item.price.toFixed(2).replace('.', ',')}` : '-'}</td>
+                <td class="money">${item.packageValueLabel || '-'}</td>
                 <td class="money">${item.found ? `R$ ${item.subtotal.toFixed(2).replace('.', ',')}` : '-'}</td>
               </tr>
             `).join('')}
             <tr>
-              <th colspan="4" class="money">Subtotal ${comparison.marketName}</th>
+              <th colspan="6" class="money">Subtotal ${comparison.marketName}</th>
               <th class="money">R$ ${comparison.total.toFixed(2).replace('.', ',')}</th>
             </tr>
           </tbody>
@@ -1926,8 +1939,10 @@ export default function App() {
               <tr>
                 <th>Produto</th>
                 <th>Marca</th>
+                <th>UND</th>
                 <th class="money">Qtd</th>
                 <th class="money">Valor Unit.</th>
+                <th class="money">R$/Base</th>
                 <th>Validade</th>
                 <th class="money">Subtotal</th>
               </tr>
@@ -1939,14 +1954,16 @@ export default function App() {
                   <tr>
                     <td>${item.catalogName || item.name}</td>
                     <td>${getLikelyBrand(item.catalogName || item.name)}</td>
+                    <td>${item.unit || '-'}</td>
                     <td class="money">${item.quantity}</td>
                     <td class="money">R$ ${item.price.toFixed(2).replace('.', ',')}</td>
+                    <td class="money">${item.packageValueLabel || '-'}</td>
                     <td>${formatPromotionDate(item.endDate)}</td>
                     <td class="money">R$ ${item.subtotal.toFixed(2).replace('.', ',')}</td>
                   </tr>
                 `).join('')}
               <tr>
-                <th colspan="5" class="money">Subtotal ${market}</th>
+                <th colspan="7" class="money">Subtotal ${market}</th>
                 <th class="money">R$ ${marketSubtotal.toFixed(2).replace('.', ',')}</th>
               </tr>
             </tbody>
@@ -1971,7 +1988,7 @@ export default function App() {
       </div>
       ${groupedRowsHtml}
       <div class="note">
-        A economia compara a compra dividida pelos menores preços encontrados com a melhor opcao de comprar tudo em um unico mercado.
+        A escolha automática compara o custo por kg, litro ou unidade quando a embalagem é identificada. A economia compara a compra dividida pelos menores custos encontrados com a melhor opcao de comprar tudo em um unico mercado.
       </div>
     `;
 
@@ -2364,7 +2381,7 @@ export default function App() {
       .filter(({ score }) => score >= 0.45)
       .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
-        return a.product.price - b.product.price;
+        return compareProductsByPackageValue(a.product, b.product);
       });
 
     return rankedMatches[0]?.product;
@@ -2381,7 +2398,8 @@ export default function App() {
     .filter(Boolean)
     .sort((a, b) => {
       if (!a || !b) return 0;
-      if (a.offer.price !== b.offer.price) return a.offer.price - b.offer.price;
+      const packageValueComparison = compareProductsByPackageValue(a.offer, b.offer);
+      if (packageValueComparison !== 0) return packageValueComparison;
       return a.market.localeCompare(b.market, 'pt-BR');
     }) as { offer: Product, market: string }[];
 
@@ -2400,14 +2418,7 @@ export default function App() {
       })
       .sort((a, b) => {
         if (b.score !== a.score) return b.score - a.score;
-        const aValue = getProductPackageValue(a.product)?.valuePrice;
-        const bValue = getProductPackageValue(b.product)?.valuePrice;
-        if (aValue !== undefined && bValue !== undefined && aValue !== bValue) return aValue - bValue;
-        if (aValue !== undefined && bValue === undefined) return -1;
-        if (aValue === undefined && bValue !== undefined) return 1;
-        if (a.product.price !== b.product.price) return a.product.price - b.product.price;
-        return a.product.market.localeCompare(b.product.market, 'pt-BR') ||
-          a.product.name.localeCompare(b.product.name, 'pt-BR');
+        return compareProductsByPackageValue(a.product, b.product);
       })
       .map(({ product }) => product);
   };
@@ -2430,11 +2441,14 @@ export default function App() {
         const offer = findProductOffer(item.name, market, city);
         const found = !!offer;
         const price = offer ? offer.price : 0;
+        const packageValue = offer ? getProductPackageValue(offer) : null;
         const subtotal = price * item.quantity;
 
         return {
           itemName: item.name,
           catalogName: offer?.name,
+          unit: offer?.unit,
+          packageValueLabel: packageValue?.label,
           price,
           found,
           quantity: item.quantity,
@@ -2471,12 +2485,13 @@ export default function App() {
       const offers = getItemOfferOptionsForCity(item.name, city);
 
       if (offers.length > 0) {
-        const cheapest = offers.reduce((prev, curr) => curr.offer.price < prev.offer.price ? curr : prev);
+        const cheapest = offers[0];
         const selectedOfferId = offerIds[item.id];
         const selectedOffer = selectedOfferId
           ? offers.find(({ offer }) => offer.id === selectedOfferId)
           : undefined;
         const chosen = selectedOffer || cheapest;
+        const packageValue = getProductPackageValue(chosen.offer);
         const subtotal = chosen.offer.price * item.quantity;
         splitTotal += subtotal;
         splitItems.push({
@@ -2484,6 +2499,8 @@ export default function App() {
           offerId: chosen.offer.id,
           name: item.name,
           catalogName: chosen.offer.name,
+          unit: chosen.offer.unit,
+          packageValueLabel: packageValue?.label,
           quantity: item.quantity,
           price: chosen.offer.price,
           market: chosen.market,
@@ -2770,8 +2787,7 @@ export default function App() {
         const currentBest = acc.get(group);
         if (
           !currentBest ||
-          product.price < currentBest.price ||
-          (product.price === currentBest.price && product.market.localeCompare(currentBest.market, 'pt-BR') < 0)
+          compareProductsByPackageValue(product, currentBest) < 0
         ) {
           acc.set(group, product);
         }
@@ -2810,6 +2826,7 @@ export default function App() {
             <th>UND</th>
             <th>Cidade</th>
             <th>Melhor valor</th>
+            <th>R$/Base</th>
             <th>Validade da promocao</th>
           </tr>
         </thead>
@@ -2825,19 +2842,20 @@ export default function App() {
               <td>${product.unit}</td>
               <td>${product.city}</td>
               <td>${formatCurrency(product.price)}</td>
+              <td>${getProductPackageValue(product)?.label || '-'}</td>
               <td>${formatDate(product.endDate)}</td>
             </tr>
             `).join('')}
             <tr class="subtotal-row">
               <td colspan="4">Subtotal ${market}</td>
               <td>${formatCurrency(subtotal)}</td>
-              <td>${items.length} item(ns)</td>
+              <td colspan="2">${items.length} item(ns)</td>
             </tr>
           `).join('')}
           <tr class="total-row">
             <td colspan="4">Total geral</td>
             <td>${formatCurrency(grandTotal)}</td>
-            <td>${bestByGroup.length} item(ns)</td>
+            <td colspan="2">${bestByGroup.length} item(ns)</td>
           </tr>
         </tbody>
       </table>
@@ -2866,7 +2884,8 @@ export default function App() {
             th { background: #f3f4f6; font-weight: 700; }
             td:nth-child(3), th:nth-child(3) { white-space: nowrap; }
             td:nth-child(5), th:nth-child(5) { text-align: right; white-space: nowrap; }
-            td:nth-child(6), th:nth-child(6) { white-space: nowrap; }
+            td:nth-child(6), th:nth-child(6) { text-align: right; white-space: nowrap; }
+            td:nth-child(7), th:nth-child(7) { white-space: nowrap; }
             .market-row td { background: #e5e7eb; font-weight: 700; font-size: 12px; color: #111827; }
             .subtotal-row td { background: #f9fafb; font-weight: 700; }
             .total-row td { background: #111827; color: white; font-weight: 700; font-size: 11px; }
@@ -3987,6 +4006,11 @@ export default function App() {
                                 <span style={{ color: 'var(--accent-success)', fontWeight: '700', marginRight: '0.5rem' }}>
                                   {formatCurrency(optItem.price)}
                                 </span>
+                                {optItem.packageValueLabel && (
+                                  <span style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginRight: '0.5rem' }}>
+                                    {optItem.packageValueLabel}
+                                  </span>
+                                )}
                                 <span style={{ fontSize: '0.75rem', background: 'rgba(255, 255, 255, 0.08)', padding: '0.2rem 0.4rem', borderRadius: '4px' }}>
                                   no {optItem.market}
                                 </span>
@@ -4023,11 +4047,11 @@ export default function App() {
                                 aria-label={`Selecionar melhor preço para ${optItem.name}`}
                               >
                                 <option value="auto">
-                                  Melhor preço automático: {formatCurrency(offerOptions[0]?.offer.price || optItem.price)} - {offerOptions[0]?.market || optItem.market} - {formatPromotionDate(offerOptions[0]?.offer.endDate || optItem.endDate)}
+                                  Melhor custo automático: {formatCurrency(offerOptions[0]?.offer.price || optItem.price)}{getProductPackageValue(offerOptions[0]?.offer || ({ name: optItem.catalogName || optItem.name, unit: optItem.unit || '', price: optItem.price } as Product))?.label ? ` (${getProductPackageValue(offerOptions[0]?.offer || ({ name: optItem.catalogName || optItem.name, unit: optItem.unit || '', price: optItem.price } as Product))?.label})` : ''} - {offerOptions[0]?.market || optItem.market} - {formatPromotionDate(offerOptions[0]?.offer.endDate || optItem.endDate)}
                                 </option>
                                 {offerOptions.map(({ offer, market }) => (
                                   <option key={offer.id} value={offer.id}>
-                                    {formatCurrency(offer.price)} - {market} - {formatPromotionDate(offer.endDate)} - {offer.name}
+                                    {formatCurrency(offer.price)}{getProductPackageValue(offer)?.label ? ` (${getProductPackageValue(offer)?.label})` : ''} - {market} - {formatPromotionDate(offer.endDate)} - {offer.name}
                                   </option>
                                 ))}
                               </select>

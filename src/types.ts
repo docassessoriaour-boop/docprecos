@@ -24,6 +24,8 @@ export interface MarketComparison {
   items: {
     itemName: string;
     catalogName?: string;
+    unit?: string;
+    packageValueLabel?: string;
     price: number;
     found: boolean;
     quantity: number;
@@ -36,6 +38,8 @@ export interface OptimizedItem {
   offerId?: string;
   name: string;
   catalogName?: string;
+  unit?: string;
+  packageValueLabel?: string;
   quantity: number;
   price: number;
   market: string;
