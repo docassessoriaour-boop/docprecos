@@ -727,6 +727,7 @@ async function scanWhatsAppHistory() {
   const historyDays = Math.max(1, Math.min(Number(process.env.WWEB_HISTORY_DAYS) || 14, 60));
   const oldestTimestamp = Math.floor((Date.now() - historyDays * 86400000) / 1000);
   const monitoredConversations = await getScannableWhatsAppConversations();
+  const handledHistoryIds = new Set();
 
   for (const { market, phone, chatId } of monitoredConversations) {
     let messages;
@@ -741,7 +742,8 @@ async function scanWhatsAppHistory() {
       if (!msg.hasMedia || Number(msg.timestamp || 0) < oldestTimestamp) continue;
       historyScan.checkedMessages += 1;
       const messageId = msg.id?._serialized || `${msg.from}-${msg.timestamp}-${msg.body || ''}`;
-      if (forceScannedMessageIds.has(messageId)) continue;
+      if (handledHistoryIds.has(messageId) || forceScannedMessageIds.has(messageId)) continue;
+      handledHistoryIds.add(messageId);
       forceScannedMessageIds.add(messageId);
       await handleWhatsAppMessage(msg, {
         includeOwnMessages: true,
@@ -751,6 +753,27 @@ async function scanWhatsAppHistory() {
       });
       historyScan.processedMedia += 1;
     }
+  }
+
+  const groupMessages = await fetchCachedGroupMessagesFromMonitoredSenders(
+    monitoredConversations,
+    oldestTimestamp,
+    historyLimit
+  );
+  console.log(`Mensagens de grupos encontradas para os remetentes cadastrados: ${groupMessages.length}.`);
+  for (const { market, message: msg } of groupMessages) {
+    const messageId = msg.id?._serialized || `${msg.from}-${msg.timestamp}-${msg.body || ''}`;
+    if (handledHistoryIds.has(messageId) || forceScannedMessageIds.has(messageId)) continue;
+    handledHistoryIds.add(messageId);
+    forceScannedMessageIds.add(messageId);
+    historyScan.checkedMessages += 1;
+    await handleWhatsAppMessage(msg, {
+      includeOwnMessages: true,
+      suppressReplies: true,
+      forcedMarket: market,
+      forceReprocess: true
+    });
+    historyScan.processedMedia += 1;
   }
 
   historyScan = {
@@ -775,7 +798,15 @@ async function getScannableWhatsAppConversations() {
         continue;
       }
 
-      conversations.push({ market, phone, chatId: numberId._serialized });
+      const identities = new Set([numberId._serialized]);
+      try {
+        const [identity] = await client.getContactLidAndPhone(numberId._serialized);
+        if (identity?.lid) identities.add(identity.lid);
+        if (identity?.pn) identities.add(identity.pn);
+      } catch {
+        // O numero principal ainda permite consultar a conversa direta.
+      }
+      conversations.push({ market, phone, chatId: numberId._serialized, identities: [...identities] });
       console.log(`- ${market} (${phone}): numero validado.`);
     } catch (error) {
       console.log(`- ${market} (${phone}): nao foi possivel validar o numero (${getCompactError(error)}).`);
@@ -791,10 +822,7 @@ async function getScannableWhatsAppConversations() {
 
 async function fetchMessagesDirectlyByChatId(chatId, limit) {
   const messageModels = await client.pupPage.evaluate(async (targetChatId, messageLimit) => {
-    const widFactory = window.require('WAWebWidFactory');
-    const chatCollection = window.require('WAWebCollections').Chat;
-    const chatWid = widFactory.createWid(targetChatId);
-    const chat = chatCollection.get(chatWid) || await chatCollection.find(chatWid);
+    const chat = await window.WWebJS.getChat(targetChatId, { getAsModel: false });
     if (!chat) return [];
 
     const isValidMessage = message => !message.isNotification;
@@ -819,6 +847,49 @@ async function fetchMessagesDirectlyByChatId(chatId, limit) {
   }, chatId, limit);
 
   return messageModels.map(model => new Message(client, model));
+}
+
+async function fetchCachedGroupMessagesFromMonitoredSenders(conversations, oldestTimestamp, limitPerSender) {
+  const identityToMarket = Object.fromEntries(
+    conversations.flatMap(({ market, identities }) => identities.map(identity => [identity, market]))
+  );
+  const serializedMessages = await client.pupPage.evaluate(
+    async (marketsByIdentity, minimumTimestamp, senderLimit) => {
+      const messages = window.require('WAWebCollections').Msg.getModelsArray();
+      const selected = [];
+      const counts = new Map();
+      const getSerializedId = value => value?._serialized || value?.toString?.() || '';
+
+      messages.sort((a, b) => Number(b.t || 0) - Number(a.t || 0));
+      for (const message of messages) {
+        if (Number(message.t || 0) < minimumTimestamp) continue;
+        const remoteId = getSerializedId(message.id?.remote);
+        if (!remoteId.endsWith('@g.us')) continue;
+        const senderId = getSerializedId(message.author || message.id?.participant || message.senderObj?.id);
+        const market = marketsByIdentity[senderId];
+        if (!market) continue;
+        const senderCount = counts.get(senderId) || 0;
+        if (senderCount >= senderLimit) continue;
+
+        try {
+          const model = await window.WWebJS.getMessageModel(message);
+          if (!model) continue;
+          selected.push({ market, model });
+          counts.set(senderId, senderCount + 1);
+        } catch {
+          // Ignora somente a mensagem incompatível.
+        }
+      }
+      return selected;
+    },
+    identityToMarket,
+    oldestTimestamp,
+    limitPerSender
+  );
+
+  return serializedMessages
+    .map(({ market, model }) => ({ market, message: new Message(client, model) }))
+    .filter(({ message }) => message.hasMedia);
 }
 
 // Endpoint to clear imports
