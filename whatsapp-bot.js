@@ -20,7 +20,7 @@
 import express from 'express';
 import cors from 'cors';
 import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth } = pkg;
+const { Client, LocalAuth, Message } = pkg;
 import qrcode from 'qrcode-terminal';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
@@ -43,7 +43,7 @@ const PORT = 3001;
 const apiKey = process.env.GEMINI_API_KEY || '';
 const shouldResetSession = process.argv.includes('--reset-session');
 const whatsappWebVersion = process.env.WWEB_VERSION || '';
-const enableDirectMediaDownload = process.env.WWEB_DIRECT_MEDIA === 'true';
+const enableDirectMediaDownload = process.env.WWEB_DIRECT_MEDIA !== 'false';
 const authClientId = shouldResetSession ? `radar-precos-${Date.now()}` : 'radar-precos';
 const offersInboxFolder = path.resolve(process.env.OFFERS_INBOX || 'ENTRADA_OFERTAS');
 const processedFilesPath = path.resolve('.processed-offer-files.json');
@@ -459,7 +459,7 @@ async function downloadMediaWithRetry(msg, attempts = 4) {
         console.log(`Tentativa ${attempt}/${attempts}: download interno falhou (${getCompactError(fallbackError)}).`);
       }
     } else if (attempt === 1) {
-      console.log('Download interno do WhatsApp Web desativado para evitar falhas desta versão. Para reativar, use WWEB_DIRECT_MEDIA=true.');
+      console.log('Download interno do WhatsApp Web desativado por WWEB_DIRECT_MEDIA=false.');
     }
 
     if (attempt < attempts) {
@@ -688,15 +688,19 @@ async function scanWhatsAppHistory() {
   const historyLimit = Math.max(1, Math.min(Number(process.env.WWEB_HISTORY_LIMIT) || 80, 250));
   const historyDays = Math.max(1, Math.min(Number(process.env.WWEB_HISTORY_DAYS) || 14, 60));
   const oldestTimestamp = Math.floor((Date.now() - historyDays * 86400000) / 1000);
-  const chats = await getScannableWhatsAppChats();
+  const monitoredConversations = await getScannableWhatsAppConversations();
 
-  for (const chat of chats) {
-    const chatMarket = getMarketFromChat(chat);
-    const messages = await chat.fetchMessages({ limit: historyLimit });
+  for (const { market, phone, chatId } of monitoredConversations) {
+    let messages;
+    try {
+      messages = await fetchMessagesDirectlyByChatId(chatId, historyLimit);
+      console.log(`- ${market} (${phone}): ${messages.length} mensagens recentes consultadas.`);
+    } catch (error) {
+      console.log(`- ${market} (${phone}): falha ao consultar mensagens (${getCompactError(error)}).`);
+      continue;
+    }
     for (const msg of messages) {
       if (!msg.hasMedia || Number(msg.timestamp || 0) < oldestTimestamp) continue;
-      const messageMarket = getMessageSource(msg).market || chatMarket;
-      if (!messageMarket) continue;
       historyScan.checkedMessages += 1;
       const messageId = msg.id?._serialized || `${msg.from}-${msg.timestamp}-${msg.body || ''}`;
       if (forceScannedMessageIds.has(messageId)) continue;
@@ -704,7 +708,7 @@ async function scanWhatsAppHistory() {
       await handleWhatsAppMessage(msg, {
         includeOwnMessages: true,
         suppressReplies: true,
-        forcedMarket: messageMarket,
+        forcedMarket: market,
         forceReprocess: true
       });
       historyScan.processedMedia += 1;
@@ -718,8 +722,8 @@ async function scanWhatsAppHistory() {
   };
 }
 
-async function getScannableWhatsAppChats() {
-  const chats = [];
+async function getScannableWhatsAppConversations() {
+  const conversations = [];
   const monitoredContacts = monitoredMarkets.flatMap(({ market, phones }) =>
     phones.map(phone => ({ market, phone, normalizedPhone: normalizePhoneNumber(phone) }))
   );
@@ -733,21 +737,50 @@ async function getScannableWhatsAppChats() {
         continue;
       }
 
-      const chat = await client.getChatById(numberId._serialized);
-      if (chat) {
-        chats.push(chat);
-        console.log(`- ${market} (${phone}): conversa localizada.`);
-      }
+      conversations.push({ market, phone, chatId: numberId._serialized });
+      console.log(`- ${market} (${phone}): numero validado.`);
     } catch (error) {
-      console.log(`- ${market} (${phone}): nao foi possivel abrir a conversa (${getCompactError(error)}).`);
+      console.log(`- ${market} (${phone}): nao foi possivel validar o numero (${getCompactError(error)}).`);
     }
   }
 
-  if (chats.length === 0) {
-    throw new Error('Nenhuma conversa dos numeros cadastrados foi liberada pelo WhatsApp.');
+  if (conversations.length === 0) {
+    throw new Error('Nenhum dos numeros cadastrados foi liberado pelo WhatsApp.');
   }
 
-  return chats;
+  return conversations;
+}
+
+async function fetchMessagesDirectlyByChatId(chatId, limit) {
+  const messageModels = await client.pupPage.evaluate(async (targetChatId, messageLimit) => {
+    const widFactory = window.require('WAWebWidFactory');
+    const chatCollection = window.require('WAWebCollections').Chat;
+    const chatWid = widFactory.createWid(targetChatId);
+    const chat = chatCollection.get(chatWid) || await chatCollection.find(chatWid);
+    if (!chat) return [];
+
+    const isValidMessage = message => !message.isNotification;
+    let messages = chat.msgs.getModelsArray().filter(isValidMessage);
+    while (messages.length < messageLimit) {
+      const loaded = await window.require('WAWebChatLoadMessages').loadEarlierMsgs({ chat });
+      if (!loaded?.length) break;
+      messages = [...loaded.filter(isValidMessage), ...messages];
+    }
+
+    messages.sort((a, b) => (a.t > b.t ? 1 : -1));
+    const recentMessages = messages.slice(-messageLimit);
+    const serializedMessages = [];
+    for (const message of recentMessages) {
+      try {
+        serializedMessages.push(await window.WWebJS.getMessageModel(message));
+      } catch {
+        // Uma mensagem incompatível nao deve cancelar toda a conversa.
+      }
+    }
+    return serializedMessages;
+  }, chatId, limit);
+
+  return messageModels.map(model => new Message(client, model));
 }
 
 // Endpoint to clear imports
