@@ -106,6 +106,7 @@ const GEMINI_MODEL_FALLBACKS = [
 // In-memory data store for WhatsApp imports
 let importedOffers = [];
 let pendingShoppingItems = [];
+let pendingOfferFiles = new Set();
 let processedFileKeys = new Set();
 let processedMessageIds = new Set();
 let forceScannedMessageIds = new Set();
@@ -226,6 +227,49 @@ function saveIncomingMediaFile(media, marketName) {
 
   fs.writeFileSync(filePath, Buffer.from(media.data, 'base64'));
   return filePath;
+}
+
+function queueOfferFileForCleanup(filePath) {
+  if (!filePath) return;
+  const resolvedPath = path.resolve(filePath);
+  const relativePath = path.relative(offersInboxFolder, resolvedPath);
+
+  // Nunca permita que a limpeza alcance arquivos fora da pasta de ofertas.
+  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
+    console.log(`Arquivo fora da pasta de ofertas nao sera excluido: ${resolvedPath}`);
+    return;
+  }
+
+  pendingOfferFiles.add(resolvedPath);
+}
+
+function deleteConfirmedOfferFiles() {
+  let deletedFiles = 0;
+
+  for (const filePath of [...pendingOfferFiles]) {
+    try {
+      if (!fs.existsSync(filePath)) {
+        pendingOfferFiles.delete(filePath);
+        continue;
+      }
+
+      const stat = fs.statSync(filePath);
+      if (!stat.isFile() || !getMediaMimeType(filePath)) {
+        pendingOfferFiles.delete(filePath);
+        continue;
+      }
+
+      fs.unlinkSync(filePath);
+      pendingOfferFiles.delete(filePath);
+      deletedFiles += 1;
+      console.log(`🧹 Arquivo removido apos confirmacao do catalogo: ${path.basename(filePath)}`);
+    } catch (error) {
+      // Mantem na fila para tentar novamente na proxima confirmacao do site.
+      console.log(`Nao foi possivel remover ${path.basename(filePath)}; nova tentativa sera feita depois: ${error?.message || error}`);
+    }
+  }
+
+  return deletedFiles;
 }
 
 function backupFolderIfExists(folderName) {
@@ -717,6 +761,7 @@ async function processOfferFile(filePath) {
 
   if (extractedOffers.length > 0) {
     importedOffers.push(...extractedOffers);
+    queueOfferFileForCleanup(filePath);
     processedFileKeys.add(fileKey);
     saveProcessedFileKeys();
   }
@@ -791,7 +836,8 @@ app.get('/api/whatsapp-sync-status', (req, res) => {
   res.json({
     ...productionSync,
     queuedOffers: importedOffers.length,
-    queuedShoppingItems: pendingShoppingItems.length
+    queuedShoppingItems: pendingShoppingItems.length,
+    filesWaitingForCatalogConfirmation: pendingOfferFiles.size
   });
 });
 
@@ -1021,13 +1067,15 @@ app.post('/api/whatsapp-clear', (req, res) => {
   importedOffers = [];
   pendingShoppingItems = [];
   if (isProductionSite) {
+    const deletedFiles = deleteConfirmedOfferFiles();
     productionSync = {
       lastSyncAt: new Date().toISOString(),
       lastOffersDelivered: deliveredOffers,
       lastShoppingItemsDelivered: deliveredShoppingItems,
       totalOffersDelivered: productionSync.totalOffersDelivered + deliveredOffers
     };
-    console.log(`Site de producao confirmou ${deliveredOffers} ofertas importadas.`);
+    console.log(`Site de producao confirmou ${deliveredOffers} ofertas importadas. ${deletedFiles} arquivo(s) removido(s).`);
+    return res.json({ success: true, deliveredOffers, deliveredShoppingItems, deletedFiles });
   }
   res.json({ success: true, deliveredOffers, deliveredShoppingItems });
 });
@@ -1300,10 +1348,17 @@ async function handleWhatsAppMessage(msg, {
         await reply(`⏳ ${isPdf ? 'PDF' : 'Imagem'} recebido. Analisando ofertas automaticamente...`);
 
         const extractedOffers = await extractOffersFromMedia(media, fallbackMarket, sourceLabel);
-        importedOffers.push(...extractedOffers);
+        if (extractedOffers.length > 0) {
+          importedOffers.push(...extractedOffers);
+          queueOfferFileForCleanup(savedFilePath);
+        }
         console.log(`IA concluiu ${fallbackMarket}: ${extractedOffers.length} ofertas extraidas.`);
 
-        await reply(`✅ Sucesso! Extraídas ${extractedOffers.length} ofertas para o Radar de Preços.`);
+        if (extractedOffers.length > 0) {
+          await reply(`✅ Sucesso! Extraídas ${extractedOffers.length} ofertas para o Radar de Preços.`);
+        } else {
+          await reply('⚠️ Nenhuma oferta foi identificada. O arquivo foi mantido na pasta para nova tentativa.');
+        }
       } else {
         await reply('Recebi a mídia, mas por enquanto processo automaticamente apenas imagens e PDFs de ofertas.');
       }
