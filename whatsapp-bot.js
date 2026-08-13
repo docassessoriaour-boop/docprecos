@@ -30,6 +30,12 @@ import path from 'node:path';
 dotenv.config();
 
 const app = express();
+app.use((req, res, next) => {
+  // Permite que o site HTTPS publicado converse com este coletor local.
+  res.setHeader('Access-Control-Allow-Private-Network', 'true');
+  res.setHeader('Cache-Control', 'no-store');
+  next();
+});
 app.use(cors());
 app.use(express.json());
 
@@ -642,12 +648,12 @@ app.get('/api/whatsapp-scan-history', (req, res) => {
   res.json(historyScan);
 });
 
-app.post('/api/whatsapp-scan-history', (req, res) => {
+function startWhatsAppHistoryScan() {
   if (!isWhatsAppReady || !client) {
-    return res.status(503).json({ error: 'WhatsApp ainda nao esta conectado.' });
+    return { started: false, statusCode: 503, error: 'WhatsApp ainda nao esta conectado.' };
   }
   if (historyScan.status === 'running') {
-    return res.status(409).json(historyScan);
+    return { started: false, statusCode: 409 };
   }
 
   historyScan = {
@@ -658,7 +664,6 @@ app.post('/api/whatsapp-scan-history', (req, res) => {
     processedMedia: 0,
     error: null
   };
-  res.status(202).json(historyScan);
 
   scanWhatsAppHistory().catch(error => {
     historyScan = {
@@ -669,6 +674,14 @@ app.post('/api/whatsapp-scan-history', (req, res) => {
     };
     console.error('Erro na verificacao manual do WhatsApp:', error);
   });
+
+  return { started: true, statusCode: 202 };
+}
+
+app.post('/api/whatsapp-scan-history', (req, res) => {
+  const result = startWhatsAppHistoryScan();
+  if (result.error) return res.status(result.statusCode).json({ error: result.error });
+  return res.status(result.statusCode).json(historyScan);
 });
 
 async function scanWhatsAppHistory() {
@@ -814,6 +827,14 @@ function attachWhatsAppHandlers(nextClient) {
     monitoredMarkets.forEach(({ market, phones }) => {
       console.log(`- ${market}: ${phones.join(' / ')}`);
     });
+
+    console.log('Iniciando verificacao automatica do historico recente...');
+    setTimeout(() => {
+      const result = startWhatsAppHistoryScan();
+      if (!result.started && result.statusCode !== 409) {
+        console.log(`Verificacao automatica nao iniciada: ${result.error || 'indisponivel'}`);
+      }
+    }, 3000);
   });
 
   nextClient.on('message', (msg) => {

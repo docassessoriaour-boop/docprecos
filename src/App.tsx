@@ -364,6 +364,7 @@ interface WhatsAppCollectorConfig {
   }[];
   offersInboxFolder: string;
   receivedWhatsAppFolder: string;
+  isWhatsAppReady: boolean;
 }
 
 interface ClientPreList {
@@ -1482,7 +1483,7 @@ export default function App() {
         if (!cancelled) setWhatsAppBridgeStatus('Coletor local não está rodando neste computador.');
       });
     }, 8000);
-    const configInterval = window.setInterval(loadWhatsAppConfig, 30000);
+    const configInterval = window.setInterval(loadWhatsAppConfig, 5000);
 
     return () => {
       cancelled = true;
@@ -3206,8 +3207,33 @@ export default function App() {
             {cities.indexOf('Ourinhos') === -1 && <option value="Ourinhos">Ourinhos</option>}
           </select>
         </div>
-        <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
-          Data Atual: <strong>{new Date().toLocaleDateString('pt-BR')}</strong>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'flex-end', flexWrap: 'wrap', gap: '0.65rem' }}>
+          <span style={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            gap: '0.35rem',
+            padding: '0.35rem 0.6rem',
+            borderRadius: '999px',
+            fontSize: '0.76rem',
+            background: whatsAppCollectorConfig?.isWhatsAppReady ? 'rgba(16, 185, 129, 0.12)' : 'rgba(245, 158, 11, 0.12)',
+            color: whatsAppCollectorConfig?.isWhatsAppReady ? 'var(--accent-success)' : 'var(--text-secondary)'
+          }}>
+            {whatsAppCollectorConfig?.isWhatsAppReady ? <CheckCircle size={14} /> : <Info size={14} />}
+            {whatsAppCollectorConfig?.isWhatsAppReady ? 'WhatsApp conectado' : 'Aguardando WhatsApp'}
+          </span>
+          <button
+            type="button"
+            className="btn-secondary"
+            onClick={forceWhatsAppHistoryScan}
+            disabled={isForcingWhatsAppScan || !whatsAppCollectorConfig?.isWhatsAppReady}
+            title="Forçar leitura dos grupos e contatos de promoção cadastrados"
+          >
+            <Search size={15} />
+            {isForcingWhatsAppScan ? 'Atualizando...' : 'Atualizar catálogo pelo WhatsApp'}
+          </button>
+          <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>
+            Data Atual: <strong>{new Date().toLocaleDateString('pt-BR')}</strong>
+          </span>
         </div>
       </div>
 
@@ -3298,7 +3324,7 @@ export default function App() {
                 type="button"
                 className="btn-secondary"
                 onClick={forceWhatsAppHistoryScan}
-                disabled={isForcingWhatsAppScan || !whatsAppCollectorConfig}
+                disabled={isForcingWhatsAppScan || !whatsAppCollectorConfig?.isWhatsAppReady}
                 style={{ marginTop: '0.8rem' }}
                 title="Verifica o histórico recente dos grupos e contatos cadastrados e adiciona somente ofertas novas ao catálogo deste site"
               >
