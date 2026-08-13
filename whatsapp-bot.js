@@ -688,7 +688,7 @@ async function scanWhatsAppHistory() {
   const historyLimit = Math.max(1, Math.min(Number(process.env.WWEB_HISTORY_LIMIT) || 80, 250));
   const historyDays = Math.max(1, Math.min(Number(process.env.WWEB_HISTORY_DAYS) || 14, 60));
   const oldestTimestamp = Math.floor((Date.now() - historyDays * 86400000) / 1000);
-  const chats = await client.getChats();
+  const chats = await getScannableWhatsAppChats();
 
   for (const chat of chats) {
     const chatMarket = getMarketFromChat(chat);
@@ -716,6 +716,38 @@ async function scanWhatsAppHistory() {
     status: 'completed',
     finishedAt: new Date().toISOString()
   };
+}
+
+async function getScannableWhatsAppChats() {
+  try {
+    return await client.getChats();
+  } catch (error) {
+    console.log(`Leitura completa das conversas falhou (${getCompactError(error)}). Tentando uma a uma...`);
+  }
+
+  const chatIds = await client.pupPage.evaluate(() => {
+    const chats = window.require('WAWebCollections').Chat.getModelsArray();
+    return chats
+      .map(chat => chat?.id?._serialized || chat?.id?.toString?.())
+      .filter(Boolean);
+  });
+  const chats = [];
+
+  for (const chatId of chatIds) {
+    if (String(chatId).includes('@newsletter')) continue;
+    try {
+      const chat = await client.getChatById(chatId);
+      if (chat) chats.push(chat);
+    } catch (error) {
+      console.log(`Conversa ignorada durante a varredura (${chatId}): ${getCompactError(error)}`);
+    }
+  }
+
+  if (chats.length === 0) {
+    throw new Error('O WhatsApp nao liberou nenhuma conversa para leitura. Aguarde alguns segundos e tente novamente.');
+  }
+
+  return chats;
 }
 
 // Endpoint to clear imports
