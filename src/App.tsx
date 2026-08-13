@@ -3108,9 +3108,12 @@ export default function App() {
     const totalItems = bestByMarket.reduce((sum, marketGroup) => sum + marketGroup.items.length, 0);
     const grandTotal = bestByMarket.reduce((sum, marketGroup) => sum + marketGroup.subtotal, 0);
 
-    const rowsHtml = bestByMarket.map(({ market, items, subtotal }) => `
+    const rowsHtml = bestByMarket.map(({ market, items, subtotal }, marketIndex) => `
       <section class="market-section">
-        <h2>${market}</h2>
+        <div class="market-header">
+          <h2>${escapeHtml(market)}</h2>
+          <span>${items.length} melhor(es) preço(s)</span>
+        </div>
         <table>
           <thead>
             <tr>
@@ -3126,23 +3129,23 @@ export default function App() {
           <tbody>
             ${items.map(({ group, product }) => `
             <tr>
-              <td>${group}</td>
-              <td>${product.name}</td>
-              <td>${product.unit}</td>
-              <td>${product.city}</td>
+              <td>${escapeHtml(group)}</td>
+              <td>${escapeHtml(product.name)}</td>
+              <td>${escapeHtml(product.unit)}</td>
+              <td>${escapeHtml(product.city)}</td>
               <td>${formatCurrency(product.price)}</td>
               <td>${getProductPackageValue(product)?.label || '-'}</td>
               <td>${formatDate(product.endDate)}</td>
             </tr>
             `).join('')}
             <tr class="subtotal-row">
-              <td colspan="4">Subtotal ${market}</td>
+              <td colspan="4">Subtotal ${escapeHtml(market)}</td>
               <td>${formatCurrency(subtotal)}</td>
               <td colspan="2">${items.length} item(ns)</td>
             </tr>
           </tbody>
         </table>
-      </section>
+      </section>${marketIndex < bestByMarket.length - 1 ? '<div class="market-page-break"></div>' : ''}
     `).join('');
 
     const summaryHtml = `
@@ -3175,7 +3178,7 @@ export default function App() {
             @page { size: A4; margin: 12mm; }
             body { font-family: Arial, sans-serif; color: #111827; }
             h1 { font-size: 20px; margin: 0 0 6px; }
-            h2 { font-size: 15px; margin: 16px 0 8px; color: #111827; }
+            h2 { font-size: 17px; margin: 0; color: #111827; }
             .meta { font-size: 11px; color: #4b5563; margin-bottom: 16px; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 12px; break-inside: auto; page-break-inside: auto; }
             thead { display: table-header-group; }
@@ -3186,7 +3189,10 @@ export default function App() {
             td:nth-child(5), th:nth-child(5) { text-align: right; white-space: nowrap; }
             td:nth-child(6), th:nth-child(6) { text-align: right; white-space: nowrap; }
             td:nth-child(7), th:nth-child(7) { white-space: nowrap; }
-            .market-section { break-inside: avoid; page-break-inside: avoid; margin-bottom: 14px; }
+            .market-section { margin-bottom: 14px; }
+            .market-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 9px 11px; margin: 0 0 8px; background: #e5e7eb; border-left: 5px solid #111827; }
+            .market-header span { font-size: 10px; font-weight: 700; color: #4b5563; }
+            .market-page-break { break-after: page; page-break-after: always; }
             .subtotal-row td { background: #f9fafb; font-weight: 700; }
             .summary-table { margin-top: 14px; }
             .total-row td { background: #111827; color: white; font-weight: 700; font-size: 11px; }
@@ -3798,7 +3804,7 @@ export default function App() {
               onClick={exportBestPricesPdf}
               disabled={products.length === 0}
             >
-              <TrendingDown size={16} /> Melhores Preços
+              <TrendingDown size={16} /> Melhores Preços por Mercado
             </button>
 
             {products.length > 0 && (
