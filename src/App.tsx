@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { 
   Upload, 
   Trash2, 
@@ -267,8 +267,15 @@ const SEARCH_STOP_WORDS = new Set([
   'un', 'unidade', 'kg', 'g', 'l', 'ml', 'litro', 'litros', 'pacote', 'pct'
 ]);
 
-const normalizeSearchText = (value: string) =>
-  value
+const SEARCH_CACHE_LIMIT = 10000;
+const normalizedSearchTextCache = new Map<string, string>();
+const searchTokensCache = new Map<string, string[]>();
+
+const normalizeSearchText = (value: string) => {
+  const cached = normalizedSearchTextCache.get(value);
+  if (cached !== undefined) return cached;
+
+  const normalized = value
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -276,16 +283,33 @@ const normalizeSearchText = (value: string) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+  if (normalizedSearchTextCache.size < SEARCH_CACHE_LIMIT) {
+    normalizedSearchTextCache.set(value, normalized);
+  }
+
+  return normalized;
+};
+
 const getDaysUntilDate = (value?: string) => {
   const endDate = parseDateOnly(value);
   if (!endDate) return null;
   return Math.round((endDate.getTime() - getTodayDateOnly().getTime()) / MS_PER_DAY);
 };
 
-const getSearchTokens = (value: string) =>
-  normalizeSearchText(value)
+const getSearchTokens = (value: string) => {
+  const cached = searchTokensCache.get(value);
+  if (cached) return cached;
+
+  const tokens = normalizeSearchText(value)
     .split(' ')
     .filter(token => token.length > 1 && !SEARCH_STOP_WORDS.has(token));
+
+  if (searchTokensCache.size < SEARCH_CACHE_LIMIT) {
+    searchTokensCache.set(value, tokens);
+  }
+
+  return tokens;
+};
 
 type ProductFamily =
   | 'rice'
@@ -499,6 +523,7 @@ const normalizePackageText = (value: string) =>
     .trim();
 
 const packageUnitPattern = 'kg|quilo|quilos|g|gr|gramas|l|lt|litro|litros|ml|un|und|unid|unidade|unidades';
+const productPackageInfoCache = new Map<string, ProductPackageInfo | null>();
 
 const isCountPackageUnit = (unit: string) =>
   ['un', 'und', 'unid', 'unidade', 'unidades'].includes(unit);
@@ -520,24 +545,37 @@ const formatNormalizedPackageLabel = (kind: ProductPackageKind, normalizedAmount
 };
 
 const getProductPackageInfo = (value: string): ProductPackageInfo | null => {
+  if (productPackageInfoCache.has(value)) {
+    return productPackageInfoCache.get(value) || null;
+  }
+
   const text = normalizePackageText(value);
   const packageMatches = Array.from(text.matchAll(new RegExp(`(?:^|\\s)(\\d+(?:[,.]\\d+)?)\\s*(${packageUnitPattern})(?=\\s|$)`, 'g')));
   const packageMatch = packageMatches.find(match => !isCountPackageUnit(match[2])) || packageMatches[0];
 
   if (!packageMatch) {
     const standaloneUnitMatch = text.match(/(?:^|\s)(kg|quilo|quilos|l|lt|litro|litros|un|und|unid|unidade|unidades)(?:\s|$)/);
-    if (!standaloneUnitMatch) return null;
+    if (!standaloneUnitMatch) {
+      if (productPackageInfoCache.size < SEARCH_CACHE_LIMIT) productPackageInfoCache.set(value, null);
+      return null;
+    }
 
     const rawStandaloneUnit = standaloneUnitMatch[1];
     if (['kg', 'quilo', 'quilos'].includes(rawStandaloneUnit)) {
-      return { kind: 'weight', amount: 1, unit: 'kg', normalizedAmount: 1000, label: '1kg' };
+      const result: ProductPackageInfo = { kind: 'weight', amount: 1, unit: 'kg', normalizedAmount: 1000, label: '1kg' };
+      if (productPackageInfoCache.size < SEARCH_CACHE_LIMIT) productPackageInfoCache.set(value, result);
+      return result;
     }
 
     if (['l', 'lt', 'litro', 'litros'].includes(rawStandaloneUnit)) {
-      return { kind: 'volume', amount: 1, unit: 'l', normalizedAmount: 1000, label: '1L' };
+      const result: ProductPackageInfo = { kind: 'volume', amount: 1, unit: 'l', normalizedAmount: 1000, label: '1L' };
+      if (productPackageInfoCache.size < SEARCH_CACHE_LIMIT) productPackageInfoCache.set(value, result);
+      return result;
     }
 
-    return { kind: 'count', amount: 1, unit: 'un', normalizedAmount: 1, label: '1un' };
+    const result: ProductPackageInfo = { kind: 'count', amount: 1, unit: 'un', normalizedAmount: 1, label: '1un' };
+    if (productPackageInfoCache.size < SEARCH_CACHE_LIMIT) productPackageInfoCache.set(value, result);
+    return result;
   }
 
   const amount = parseDecimalNumber(packageMatch[1]);
@@ -553,25 +591,35 @@ const getProductPackageInfo = (value: string): ProductPackageInfo | null => {
 
   if (['kg', 'quilo', 'quilos'].includes(rawUnit)) {
     const normalizedAmount = amount * 1000 * multiplier;
-    return { kind: 'weight', amount: amount * multiplier, unit: 'kg', normalizedAmount, label: formatNormalizedPackageLabel('weight', normalizedAmount) };
+    const result: ProductPackageInfo = { kind: 'weight', amount: amount * multiplier, unit: 'kg', normalizedAmount, label: formatNormalizedPackageLabel('weight', normalizedAmount) };
+    if (productPackageInfoCache.size < SEARCH_CACHE_LIMIT) productPackageInfoCache.set(value, result);
+    return result;
   }
 
   if (['g', 'gr', 'gramas'].includes(rawUnit)) {
     const normalizedAmount = amount * multiplier;
-    return { kind: 'weight', amount: normalizedAmount, unit: 'g', normalizedAmount, label: formatNormalizedPackageLabel('weight', normalizedAmount) };
+    const result: ProductPackageInfo = { kind: 'weight', amount: normalizedAmount, unit: 'g', normalizedAmount, label: formatNormalizedPackageLabel('weight', normalizedAmount) };
+    if (productPackageInfoCache.size < SEARCH_CACHE_LIMIT) productPackageInfoCache.set(value, result);
+    return result;
   }
 
   if (['l', 'lt', 'litro', 'litros'].includes(rawUnit)) {
     const normalizedAmount = amount * 1000 * multiplier;
-    return { kind: 'volume', amount: amount * multiplier, unit: 'l', normalizedAmount, label: formatNormalizedPackageLabel('volume', normalizedAmount) };
+    const result: ProductPackageInfo = { kind: 'volume', amount: amount * multiplier, unit: 'l', normalizedAmount, label: formatNormalizedPackageLabel('volume', normalizedAmount) };
+    if (productPackageInfoCache.size < SEARCH_CACHE_LIMIT) productPackageInfoCache.set(value, result);
+    return result;
   }
 
   if (rawUnit === 'ml') {
     const normalizedAmount = amount * multiplier;
-    return { kind: 'volume', amount: normalizedAmount, unit: 'ml', normalizedAmount, label: formatNormalizedPackageLabel('volume', normalizedAmount) };
+    const result: ProductPackageInfo = { kind: 'volume', amount: normalizedAmount, unit: 'ml', normalizedAmount, label: formatNormalizedPackageLabel('volume', normalizedAmount) };
+    if (productPackageInfoCache.size < SEARCH_CACHE_LIMIT) productPackageInfoCache.set(value, result);
+    return result;
   }
 
-  return { kind: 'count', amount, unit: 'un', normalizedAmount: amount, label: `${formatPackageAmount(amount)}un` };
+  const result: ProductPackageInfo = { kind: 'count', amount, unit: 'un', normalizedAmount: amount, label: `${formatPackageAmount(amount)}un` };
+  if (productPackageInfoCache.size < SEARCH_CACHE_LIMIT) productPackageInfoCache.set(value, result);
+  return result;
 };
 
 const hasDifferentExplicitPackage = (queryPackage: ProductPackageInfo | null, productPackage: ProductPackageInfo | null) => {
@@ -701,7 +749,12 @@ const getProductSubtype = (family: ProductFamily, text: string) => {
   return subtypeRules[family]?.find(rule => hasNormalizedPhrase(` ${text} `, rule.terms))?.label || null;
 };
 
+const productSearchProfileCache = new Map<string, ProductSearchProfile>();
+
 const getProductSearchProfile = (value: string): ProductSearchProfile => {
+  const cached = productSearchProfileCache.get(value);
+  if (cached) return cached;
+
   const text = normalizeSearchText(value);
   const attributes = new Set<ProductAttribute>();
   const packageInfo = getProductPackageInfo(value);
@@ -788,7 +841,12 @@ const getProductSearchProfile = (value: string): ProductSearchProfile => {
     family = 'aluminum_cleaner';
   }
 
-  return { family, attributes, packageInfo, subtype: getProductSubtype(family, text) };
+  const profile = { family, attributes, packageInfo, subtype: getProductSubtype(family, text) };
+  if (productSearchProfileCache.size < SEARCH_CACHE_LIMIT) {
+    productSearchProfileCache.set(value, profile);
+  }
+
+  return profile;
 };
 
 const productFamilyLabels: Record<ProductFamily, string> = {
@@ -1205,6 +1263,8 @@ const getProductGroup = (productName: string, unit = '') => {
   return firstToken ? firstToken.charAt(0).toUpperCase() + firstToken.slice(1) : 'Outros';
 };
 
+const CATALOG_PAGE_SIZE = 60;
+
 export default function App() {
   const [products, setProducts] = useState<Product[]>(loadSavedProducts);
   
@@ -1236,6 +1296,7 @@ export default function App() {
   const [selectedProductGroup, setSelectedProductGroup] = useState('Todos');
   const [selectedMarket, setSelectedMarket] = useState('Todos');
   const [selectedCity, setSelectedCity] = useState('Ourinhos');
+  const [visibleCatalogCount, setVisibleCatalogCount] = useState(CATALOG_PAGE_SIZE);
   const [onlineSearchQuery, setOnlineSearchQuery] = useState('');
   const [whatsAppText, setWhatsAppText] = useState('');
   
@@ -1465,7 +1526,9 @@ export default function App() {
         if (!response.ok) return;
         const config = await response.json() as WhatsAppCollectorConfig;
         if (!cancelled) {
-          setWhatsAppCollectorConfig(config);
+          setWhatsAppCollectorConfig(previous => (
+            JSON.stringify(previous) === JSON.stringify(config) ? previous : config
+          ));
         }
       } catch {
         if (!cancelled) {
@@ -1493,12 +1556,20 @@ export default function App() {
   }, []);
 
   // Unique lists for filtering dropdowns
-  const markets = useMemo(() => Array.from(new Set(products.map(p => p.market))), [products]);
+  const markets = useMemo(
+    () => activeTab === 'catalog' ? Array.from(new Set(products.map(p => p.market))) : [],
+    [activeTab, products]
+  );
   const cities = useMemo(() => Array.from(new Set(products.map(p => p.city))), [products]);
-  const categories = useMemo(() => ['Todas', ...Array.from(new Set(products.map(p => p.category)))], [products]);
+  const categories = useMemo(
+    () => activeTab === 'catalog' ? ['Todas', ...Array.from(new Set(products.map(p => p.category)))] : ['Todas'],
+    [activeTab, products]
+  );
   const productGroups = useMemo(
-    () => ['Todos', ...Array.from(new Set(products.map(p => getProductGroup(p.name, p.unit)))).sort((a, b) => a.localeCompare(b, 'pt-BR'))],
-    [products]
+    () => activeTab === 'catalog'
+      ? ['Todos', ...Array.from(new Set(products.map(p => getProductGroup(p.name, p.unit)))).sort((a, b) => a.localeCompare(b, 'pt-BR'))]
+      : ['Todos'],
+    [activeTab, products]
   );
 
   useEffect(() => {
@@ -2555,47 +2626,6 @@ export default function App() {
     }
   };
 
-  // Find offer in specific market & city (ignoring expired unless no other option)
-  const findProductOffer = (itemName: string, marketName: string, city: string): Product | undefined => {
-    const marketProducts = products.filter(p => p.market === marketName && (city === 'Todas' || p.city === city));
-    if (marketProducts.length === 0) return undefined;
-
-    // Filter out expired items first for validity comparison
-    const activeProducts = marketProducts.filter(p => {
-      if (!p.endDate) return true;
-      return !isDateExpired(p.endDate);
-    });
-
-    const targetList = activeProducts;
-
-    const rankedMatches = targetList
-      .map(product => ({ product, score: getProductMatchScore(itemName, product) }))
-      .filter(({ score }) => score >= 0.45)
-      .sort((a, b) => {
-        const packageValueComparison = compareProductsByPackageValue(a.product, b.product);
-        if (packageValueComparison !== 0) return packageValueComparison;
-        return b.score - a.score;
-      });
-
-    return rankedMatches[0]?.product;
-  };
-
-  const getMarketsForCity = (city: string) =>
-    Array.from(new Set(products.filter(p => city === 'Todas' || p.city === city).map(p => p.market)));
-
-  const getItemOfferOptionsForCity = (itemName: string, city: string) => getMarketsForCity(city)
-    .map(market => {
-      const offer = findProductOffer(itemName, market, city);
-      return offer ? { offer, market } : null;
-    })
-    .filter(Boolean)
-    .sort((a, b) => {
-      if (!a || !b) return 0;
-      const packageValueComparison = compareProductsByPackageValue(a.offer, b.offer);
-      if (packageValueComparison !== 0) return packageValueComparison;
-      return a.market.localeCompare(b.market, 'pt-BR');
-    }) as { offer: Product, market: string }[];
-
   const getAllOfferOptionsForItem = (itemName: string, city: string) => {
     const seenOfferKeys = new Set<string>();
 
@@ -2617,22 +2647,61 @@ export default function App() {
       .map(({ product }) => product);
   };
 
-  const getItemOfferOptions = (itemName: string) => getItemOfferOptionsForCity(itemName, selectedCity);
-
-  const calculatePurchaseComparison = (
+  const calculatePurchaseComparison = useCallback((
     itemsToCompare: ShoppingItem[],
     city: string,
     offerIds: Record<string, string> = {}
   ) => {
     const consolidatedItems = consolidateShoppingItems(itemsToCompare);
-    const marketsForCity = getMarketsForCity(city);
+    const cityProducts = products.filter(product => city === 'Todas' || product.city === city);
+    const activeCityProducts = cityProducts.filter(product => !isDateExpired(product.endDate));
+    const marketsForCity = Array.from(new Set(cityProducts.map(product => product.market)));
+
+    // Calcula a compatibilidade de cada item com cada produto apenas uma vez.
+    // Antes, o mesmo catálogo era filtrado e pontuado novamente para cada mercado
+    // e novamente para a compra dividida, o que travava com catálogos maiores.
+    const offerOptionsByItemKey = new Map<string, { offer: Product, market: string }[]>();
+
+    consolidatedItems.forEach(item => {
+      const bestMatchByMarket = new Map<string, { product: Product, score: number }>();
+
+      activeCityProducts.forEach(product => {
+        const score = getProductMatchScore(item.name, product);
+        if (score < 0.45) return;
+
+        const currentBest = bestMatchByMarket.get(product.market);
+        if (!currentBest) {
+          bestMatchByMarket.set(product.market, { product, score });
+          return;
+        }
+
+        const packageValueComparison = compareProductsByPackageValue(product, currentBest.product);
+        if (packageValueComparison < 0 || (packageValueComparison === 0 && score > currentBest.score)) {
+          bestMatchByMarket.set(product.market, { product, score });
+        }
+      });
+
+      const offers = Array.from(bestMatchByMarket.entries())
+        .map(([market, match]) => ({ offer: match.product, market }))
+        .sort((a, b) => {
+          const packageValueComparison = compareProductsByPackageValue(a.offer, b.offer);
+          if (packageValueComparison !== 0) return packageValueComparison;
+          return a.market.localeCompare(b.market, 'pt-BR');
+        });
+
+      offerOptionsByItemKey.set(getShoppingItemDuplicateKey(item), offers);
+    });
+
     const marketComparisons: MarketComparison[] = marketsForCity.map(market => {
       let total = 0;
       let availableCount = 0;
       let missingCount = 0;
 
       const rawItems = consolidatedItems.map(item => {
-        const offer = findProductOffer(item.name, market, city);
+        const offer = offerOptionsByItemKey
+          .get(getShoppingItemDuplicateKey(item))
+          ?.find(option => option.market === market)
+          ?.offer;
         const found = !!offer;
         const price = offer ? offer.price : 0;
         const packageValue = offer ? getProductPackageValue(offer) : null;
@@ -2676,7 +2745,7 @@ export default function App() {
     let missingCount = 0;
 
     consolidatedItems.forEach(item => {
-      const offers = getItemOfferOptionsForCity(item.name, city);
+      const offers = offerOptionsByItemKey.get(getShoppingItemDuplicateKey(item)) || [];
 
       if (offers.length > 0) {
         const cheapest = offers[0];
@@ -2725,14 +2794,25 @@ export default function App() {
       optimizedItems: mergeRepeatedOptimizedItems(splitItems),
       optimizedTotal: splitTotal,
       optimizedMissingCount: missingCount,
-      bestAllInOne: bestSingleMarket
+      bestAllInOne: bestSingleMarket,
+      offerOptionsByItemKey
     };
-  };
+  }, [products]);
 
   // CALCULATE COMPARISONS FOR THE SELECTED CITY
   const currentComparison = useMemo(
-    () => calculatePurchaseComparison(shoppingList, selectedCity, selectedOfferIds),
-    [shoppingList, selectedCity, selectedOfferIds, products]
+    () => activeTab === 'simulator'
+      ? calculatePurchaseComparison(shoppingList, selectedCity, selectedOfferIds)
+      : {
+          cityMarkets: [],
+          allInOneComparisons: [],
+          optimizedItems: [],
+          optimizedTotal: 0,
+          optimizedMissingCount: 0,
+          bestAllInOne: undefined,
+          offerOptionsByItemKey: new Map<string, { offer: Product, market: string }[]>()
+        },
+    [activeTab, calculatePurchaseComparison, shoppingList, selectedCity, selectedOfferIds]
   );
   const cityMarkets = currentComparison.cityMarkets;
   const allInOneComparisons = currentComparison.allInOneComparisons;
@@ -2742,24 +2822,40 @@ export default function App() {
   const bestAllInOne = currentComparison.bestAllInOne;
   const potentialSavings = bestAllInOne && bestAllInOne.total > 0 ? (bestAllInOne.total - optimizedTotal) : 0;
 
-  // Filter Catalog
-  const filteredProducts = useMemo(() => products.filter(p => {
-    const matchesSearch = !searchTerm.trim() || getProductMatchScore(searchTerm, p) >= 0.45;
-    const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
-    const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name, p.unit) === selectedProductGroup;
-    const matchesMarket = selectedMarket === 'Todos' || p.market === selectedMarket;
-    const matchesCity = selectedCity === 'Todas' || p.city === selectedCity;
-    return matchesSearch && matchesCategory && matchesProductGroup && matchesMarket && matchesCity;
-  }), [products, searchTerm, selectedCategory, selectedProductGroup, selectedMarket, selectedCity]);
+  const clientPreListComparisons = useMemo(() => {
+    const comparisons = new Map<string, ReturnType<typeof calculatePurchaseComparison>>();
+    if (activeTab !== 'prelists') return comparisons;
 
-  const productsMatchingFiltersWithoutExpiry = useMemo(() => products.filter(p => {
-    const matchesSearch = !searchTerm.trim() || getProductMatchScore(searchTerm, p) >= 0.45;
-    const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
-    const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name, p.unit) === selectedProductGroup;
-    const matchesMarket = selectedMarket === 'Todos' || p.market === selectedMarket;
-    const matchesCity = selectedCity === 'Todas' || p.city === selectedCity;
-    return matchesSearch && matchesCategory && matchesProductGroup && matchesMarket && matchesCity;
-  }), [products, searchTerm, selectedCategory, selectedProductGroup, selectedMarket, selectedCity]);
+    clientPreLists.forEach(preList => {
+      comparisons.set(preList.id, calculatePurchaseComparison(preList.items, preList.city));
+    });
+
+    return comparisons;
+  }, [activeTab, calculatePurchaseComparison, clientPreLists]);
+
+  // Filter Catalog
+  const filteredProducts = useMemo(() => {
+    if (activeTab !== 'catalog') return [];
+
+    return products.filter(p => {
+      const matchesSearch = !searchTerm.trim() || getProductMatchScore(searchTerm, p) >= 0.45;
+      const matchesCategory = selectedCategory === 'Todas' || p.category === selectedCategory;
+      const matchesProductGroup = selectedProductGroup === 'Todos' || getProductGroup(p.name, p.unit) === selectedProductGroup;
+      const matchesMarket = selectedMarket === 'Todos' || p.market === selectedMarket;
+      const matchesCity = selectedCity === 'Todas' || p.city === selectedCity;
+      return matchesSearch && matchesCategory && matchesProductGroup && matchesMarket && matchesCity;
+    });
+  }, [activeTab, products, searchTerm, selectedCategory, selectedProductGroup, selectedMarket, selectedCity]);
+
+  const productsMatchingFiltersWithoutExpiry = filteredProducts;
+  const visibleFilteredProducts = useMemo(
+    () => filteredProducts.slice(0, visibleCatalogCount),
+    [filteredProducts, visibleCatalogCount]
+  );
+
+  useEffect(() => {
+    setVisibleCatalogCount(CATALOG_PAGE_SIZE);
+  }, [activeTab, searchTerm, selectedCategory, selectedProductGroup, selectedMarket, selectedCity]);
 
   const exportProductsPdf = () => {
     const sourceProducts = productsMatchingFiltersWithoutExpiry.length > 0
@@ -3725,8 +3821,9 @@ export default function App() {
               <p>Nenhuma oferta encontrada para os filtros selecionados.</p>
             </div>
           ) : (
-            <div className="products-grid">
-              {filteredProducts.map(p => {
+            <>
+              <div className="products-grid">
+              {visibleFilteredProducts.map(p => {
                 const validity = getValidityStatus(p.endDate);
                 
                 return (
@@ -3767,7 +3864,21 @@ export default function App() {
                   </div>
                 );
               })}
-            </div>
+              </div>
+              {visibleCatalogCount < filteredProducts.length && (
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '0.65rem', marginTop: '1.5rem' }}>
+                  <span className="text-secondary-color" style={{ fontSize: '0.82rem' }}>
+                    Exibindo {visibleFilteredProducts.length} de {filteredProducts.length} ofertas
+                  </span>
+                  <button
+                    className="btn-secondary"
+                    onClick={() => setVisibleCatalogCount(count => count + CATALOG_PAGE_SIZE)}
+                  >
+                    <Plus size={16} /> Mostrar mais ofertas
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}
@@ -3798,7 +3909,7 @@ export default function App() {
           ) : (
             <div className="prelist-grid">
               {clientPreLists.map(preList => {
-                const comparison = calculatePurchaseComparison(preList.items, preList.city);
+                const comparison = clientPreListComparisons.get(preList.id);
                 const updatedAt = new Date(preList.updatedAt).toLocaleDateString('pt-BR');
 
                 return (
@@ -3825,7 +3936,7 @@ export default function App() {
                       </div>
                       <div>
                         <span className="metric-label">Melhores preços</span>
-                        <strong className="text-success">R$ {comparison.optimizedTotal.toFixed(2)}</strong>
+                        <strong className="text-success">R$ {(comparison?.optimizedTotal || 0).toFixed(2)}</strong>
                       </div>
                       <div>
                         <span className="metric-label">Atualizada</span>
@@ -4242,7 +4353,8 @@ export default function App() {
                     {optimizedItems.map((optItem, idx) => {
                       const isFound = optItem.market !== 'Não encontrado';
                       const validity = getValidityStatus(optItem.endDate);
-                      const offerOptions = getItemOfferOptions(optItem.name);
+                      const offerOptions = currentComparison.offerOptionsByItemKey
+                        .get(getShoppingItemDuplicateKey({ name: optItem.name })) || [];
                       const selectedOfferId = selectedOfferIds[optItem.shoppingItemId];
                       const selectedOfferExists = offerOptions.some(({ offer }) => offer.id === selectedOfferId);
                       
