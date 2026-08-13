@@ -1225,6 +1225,7 @@ export default function App() {
   const [uploadStatus, setUploadStatus] = useState<string | null>(null);
   const [whatsAppBridgeStatus, setWhatsAppBridgeStatus] = useState('Aguardando coletor local');
   const [whatsAppCollectorConfig, setWhatsAppCollectorConfig] = useState<WhatsAppCollectorConfig | null>(null);
+  const [isForcingWhatsAppScan, setIsForcingWhatsAppScan] = useState(false);
   const [showApiKey, setShowApiKey] = useState(false);
   const importedWhatsAppIds = useRef<Set<string>>(new Set());
   
@@ -1346,82 +1347,116 @@ export default function App() {
     localStorage.setItem('gemini_api_key', apiKey);
   }, [apiKey]);
 
-  useEffect(() => {
-    let cancelled = false;
+  const importFromWhatsAppBridge = async (isCancelled: () => boolean = () => false) => {
+    const response = await fetch('http://localhost:3001/api/whatsapp-imports');
+    if (!response.ok) throw new Error('Coletor indisponível');
 
-    const importFromWhatsAppBridge = async () => {
-      try {
-        const response = await fetch('http://localhost:3001/api/whatsapp-imports');
-        if (!response.ok) throw new Error('Coletor indisponível');
+    const data: { offers?: Product[]; shoppingItems?: ShoppingItem[] } = await response.json();
+    const incomingOffers = data.offers || [];
+    const incomingItems = data.shoppingItems || [];
 
-        const data: { offers?: Product[]; shoppingItems?: ShoppingItem[] } = await response.json();
-        const incomingOffers = data.offers || [];
-        const incomingItems = data.shoppingItems || [];
+    if (isCancelled()) return { addedOffers: 0, addedItems: 0 };
 
-        if (cancelled) return;
+    if (incomingOffers.length === 0 && incomingItems.length === 0) {
+      setWhatsAppBridgeStatus('Coletor conectado. Nenhuma oferta nova.');
+      return { addedOffers: 0, addedItems: 0 };
+    }
 
-        if (incomingOffers.length === 0 && incomingItems.length === 0) {
-          setWhatsAppBridgeStatus('Coletor conectado. Nenhuma oferta nova.');
+    let addedOffers = 0;
+    if (incomingOffers.length > 0) {
+      setProducts(prev => {
+        const existingKeys = new Set(removeExpiredProducts(prev).map(getProductDuplicateKey));
+        const nextProducts = [...prev];
+
+        incomingOffers.forEach(offer => {
+          if (importedWhatsAppIds.current.has(offer.id)) return;
+          const normalizedOffer = normalizeProductOfferDates(offer);
+          if (isDateExpired(normalizedOffer.endDate)) return;
+
+          const key = getProductDuplicateKey(normalizedOffer);
+          importedWhatsAppIds.current.add(offer.id);
+
+          if (!existingKeys.has(key)) {
+            existingKeys.add(key);
+            nextProducts.push(normalizedOffer);
+            addedOffers += 1;
+          }
+        });
+
+        return removeExpiredProducts(nextProducts);
+      });
+    }
+
+    if (incomingItems.length > 0) {
+      setShoppingList(prev => {
+        const nextItems = [...prev];
+
+        incomingItems.forEach(item => {
+          if (importedWhatsAppIds.current.has(item.id)) return;
+          importedWhatsAppIds.current.add(item.id);
+
+          const incomingKey = getShoppingItemDuplicateKey(item);
+          const idx = nextItems.findIndex(existing => getShoppingItemDuplicateKey(existing) === incomingKey);
+          if (idx > -1) {
+            nextItems[idx] = { ...nextItems[idx], quantity: nextItems[idx].quantity + item.quantity };
+          } else {
+            nextItems.push(item);
+          }
+        });
+
+        return consolidateShoppingItems(nextItems);
+      });
+    }
+
+    await fetch('http://localhost:3001/api/whatsapp-clear', { method: 'POST' });
+    setWhatsAppBridgeStatus(`Importado pelo coletor: ${addedOffers} ofertas e ${incomingItems.length} itens de lista.`);
+    return { addedOffers, addedItems: incomingItems.length };
+  };
+
+  const forceWhatsAppHistoryScan = async () => {
+    setIsForcingWhatsAppScan(true);
+    setWhatsAppBridgeStatus('Solicitando verificação dos grupos e contatos cadastrados...');
+
+    try {
+      const startResponse = await fetch('http://localhost:3001/api/whatsapp-scan-history', { method: 'POST' });
+      if (!startResponse.ok && startResponse.status !== 409) {
+        const data = await startResponse.json().catch(() => ({}));
+        throw new Error(data.error || 'Não foi possível iniciar a verificação.');
+      }
+
+      for (let attempt = 0; attempt < 300; attempt += 1) {
+        await new Promise(resolve => window.setTimeout(resolve, 2000));
+        const statusResponse = await fetch('http://localhost:3001/api/whatsapp-scan-history');
+        if (!statusResponse.ok) throw new Error('O coletor parou de responder.');
+        const scan = await statusResponse.json() as {
+          status: 'idle' | 'running' | 'completed' | 'error';
+          checkedMessages?: number;
+          processedMedia?: number;
+          error?: string | null;
+        };
+
+        if (scan.status === 'running') {
+          setWhatsAppBridgeStatus(`Verificando WhatsApp: ${scan.checkedMessages || 0} arquivos encontrados...`);
+          continue;
+        }
+        if (scan.status === 'error') throw new Error(scan.error || 'Falha ao verificar o WhatsApp.');
+        if (scan.status === 'completed') {
+          await importFromWhatsAppBridge();
+          setWhatsAppBridgeStatus(prev => `${prev} Verificação concluída.`);
           return;
         }
-
-        let addedOffers = 0;
-        if (incomingOffers.length > 0) {
-          setProducts(prev => {
-            const existingKeys = new Set(removeExpiredProducts(prev).map(getProductDuplicateKey));
-            const nextProducts = [...prev];
-
-            incomingOffers.forEach(offer => {
-              if (importedWhatsAppIds.current.has(offer.id)) return;
-              const normalizedOffer = normalizeProductOfferDates(offer);
-              if (isDateExpired(normalizedOffer.endDate)) return;
-
-              const key = getProductDuplicateKey(normalizedOffer);
-              importedWhatsAppIds.current.add(offer.id);
-
-              if (!existingKeys.has(key)) {
-                existingKeys.add(key);
-                nextProducts.push(normalizedOffer);
-                addedOffers += 1;
-              }
-            });
-
-            return removeExpiredProducts(nextProducts);
-          });
-        }
-
-        if (incomingItems.length > 0) {
-          setShoppingList(prev => {
-            const nextItems = [...prev];
-
-            incomingItems.forEach(item => {
-              if (importedWhatsAppIds.current.has(item.id)) return;
-              importedWhatsAppIds.current.add(item.id);
-
-              const incomingKey = getShoppingItemDuplicateKey(item);
-              const idx = nextItems.findIndex(existing => getShoppingItemDuplicateKey(existing) === incomingKey);
-              if (idx > -1) {
-                nextItems[idx] = {
-                  ...nextItems[idx],
-                  quantity: nextItems[idx].quantity + item.quantity
-                };
-              } else {
-                nextItems.push(item);
-              }
-            });
-
-            return consolidateShoppingItems(nextItems);
-          });
-        }
-
-        await fetch('http://localhost:3001/api/whatsapp-clear', { method: 'POST' });
-        setWhatsAppBridgeStatus(`Importado pelo coletor: ${addedOffers} ofertas e ${incomingItems.length} itens de lista.`);
-      } catch {
-        if (!cancelled) {
-          setWhatsAppBridgeStatus('Coletor local não está rodando neste computador.');
-        }
       }
-    };
+
+      throw new Error('A verificação demorou mais que o esperado.');
+    } catch (error) {
+      setWhatsAppBridgeStatus(error instanceof Error ? error.message : 'Falha ao verificar o WhatsApp.');
+    } finally {
+      setIsForcingWhatsAppScan(false);
+    }
+  };
+
+  useEffect(() => {
+    let cancelled = false;
 
     const loadWhatsAppConfig = async () => {
       try {
@@ -1439,8 +1474,14 @@ export default function App() {
     };
 
     loadWhatsAppConfig();
-    importFromWhatsAppBridge();
-    const interval = window.setInterval(importFromWhatsAppBridge, 8000);
+    importFromWhatsAppBridge(() => cancelled).catch(() => {
+      if (!cancelled) setWhatsAppBridgeStatus('Coletor local não está rodando neste computador.');
+    });
+    const interval = window.setInterval(() => {
+      importFromWhatsAppBridge(() => cancelled).catch(() => {
+        if (!cancelled) setWhatsAppBridgeStatus('Coletor local não está rodando neste computador.');
+      });
+    }, 8000);
     const configInterval = window.setInterval(loadWhatsAppConfig, 30000);
 
     return () => {
@@ -3253,6 +3294,20 @@ export default function App() {
                   ))}
                 </div>
               )}
+              <button
+                type="button"
+                className="btn-secondary"
+                onClick={forceWhatsAppHistoryScan}
+                disabled={isForcingWhatsAppScan || !whatsAppCollectorConfig}
+                style={{ marginTop: '0.8rem' }}
+                title="Verifica o histórico recente dos grupos e contatos cadastrados e adiciona somente ofertas novas ao catálogo deste site"
+              >
+                <Search size={15} />
+                {isForcingWhatsAppScan ? 'Verificando WhatsApp...' : 'Verificar ofertas do WhatsApp agora'}
+              </button>
+              <div style={{ fontSize: '0.74rem', color: 'var(--text-secondary)', marginTop: '0.45rem' }}>
+                As novas ofertas serão cruzadas com o catálogo atual; itens repetidos ou vencidos não serão adicionados.
+              </div>
             </div>
             
             {/* Import Method selection */}

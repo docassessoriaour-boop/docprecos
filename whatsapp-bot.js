@@ -64,7 +64,16 @@ let importedOffers = [];
 let pendingShoppingItems = [];
 let processedFileKeys = new Set();
 let processedMessageIds = new Set();
+let forceScannedMessageIds = new Set();
 let isScanningOfferFolder = false;
+let historyScan = {
+  status: 'idle',
+  startedAt: null,
+  finishedAt: null,
+  checkedMessages: 0,
+  processedMedia: 0,
+  error: null
+};
 let quotaPausedUntil = 0;
 let client;
 let isRestartingWhatsAppClient = false;
@@ -109,6 +118,25 @@ function getMessageSource(msg) {
       targetNumber === ownerWhatsAppNumberNormalized,
     isMonitoredMarket: Boolean(market)
   };
+}
+
+function normalizeMarketText(value) {
+  return String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-zA-Z0-9]/g, '')
+    .toLowerCase();
+}
+
+function getMarketFromChat(chat) {
+  const chatNumber = normalizePhoneNumber(getBareWhatsAppNumber(chat?.id?._serialized));
+  const directMarket = monitoredPhoneToMarket.get(chatNumber);
+  if (directMarket) return directMarket;
+
+  const normalizedChatName = normalizeMarketText(chat?.name);
+  return monitoredMarkets.find(({ market }) =>
+    normalizedChatName.includes(normalizeMarketText(market))
+  )?.market || null;
 }
 
 function getMediaExtension(media) {
@@ -605,9 +633,77 @@ app.get('/api/whatsapp-config', (req, res) => {
     ownerWhatsAppNumber,
     monitoredMarkets,
     offersInboxFolder,
-    receivedWhatsAppFolder
+    receivedWhatsAppFolder,
+    isWhatsAppReady
   });
 });
+
+app.get('/api/whatsapp-scan-history', (req, res) => {
+  res.json(historyScan);
+});
+
+app.post('/api/whatsapp-scan-history', (req, res) => {
+  if (!isWhatsAppReady || !client) {
+    return res.status(503).json({ error: 'WhatsApp ainda nao esta conectado.' });
+  }
+  if (historyScan.status === 'running') {
+    return res.status(409).json(historyScan);
+  }
+
+  historyScan = {
+    status: 'running',
+    startedAt: new Date().toISOString(),
+    finishedAt: null,
+    checkedMessages: 0,
+    processedMedia: 0,
+    error: null
+  };
+  res.status(202).json(historyScan);
+
+  scanWhatsAppHistory().catch(error => {
+    historyScan = {
+      ...historyScan,
+      status: 'error',
+      finishedAt: new Date().toISOString(),
+      error: getCompactError(error)
+    };
+    console.error('Erro na verificacao manual do WhatsApp:', error);
+  });
+});
+
+async function scanWhatsAppHistory() {
+  const historyLimit = Math.max(1, Math.min(Number(process.env.WWEB_HISTORY_LIMIT) || 80, 250));
+  const historyDays = Math.max(1, Math.min(Number(process.env.WWEB_HISTORY_DAYS) || 14, 60));
+  const oldestTimestamp = Math.floor((Date.now() - historyDays * 86400000) / 1000);
+  const chats = await client.getChats();
+
+  for (const chat of chats) {
+    const chatMarket = getMarketFromChat(chat);
+    const messages = await chat.fetchMessages({ limit: historyLimit });
+    for (const msg of messages) {
+      if (!msg.hasMedia || Number(msg.timestamp || 0) < oldestTimestamp) continue;
+      const messageMarket = getMessageSource(msg).market || chatMarket;
+      if (!messageMarket) continue;
+      historyScan.checkedMessages += 1;
+      const messageId = msg.id?._serialized || `${msg.from}-${msg.timestamp}-${msg.body || ''}`;
+      if (forceScannedMessageIds.has(messageId)) continue;
+      forceScannedMessageIds.add(messageId);
+      await handleWhatsAppMessage(msg, {
+        includeOwnMessages: true,
+        suppressReplies: true,
+        forcedMarket: messageMarket,
+        forceReprocess: true
+      });
+      historyScan.processedMedia += 1;
+    }
+  }
+
+  historyScan = {
+    ...historyScan,
+    status: 'completed',
+    finishedAt: new Date().toISOString()
+  };
+}
 
 // Endpoint to clear imports
 app.post('/api/whatsapp-clear', (req, res) => {
@@ -756,11 +852,19 @@ async function initializeWhatsAppClient() {
   }
 }
 
-async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
+async function handleWhatsAppMessage(msg, {
+  includeOwnMessages = false,
+  suppressReplies = false,
+  forcedMarket = null,
+  forceReprocess = false
+} = {}) {
   if (msg.fromMe && !includeOwnMessages) return;
   const messageId = msg.id?._serialized || `${msg.from}-${msg.timestamp}-${msg.body || ''}`;
-  if (processedMessageIds.has(messageId)) return;
+  if (!forceReprocess && processedMessageIds.has(messageId)) return;
   processedMessageIds.add(messageId);
+  const reply = async text => {
+    if (!suppressReplies) await safeReply(msg, text);
+  };
 
   const text = msg.body ? msg.body.trim() : '';
   
@@ -786,11 +890,11 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
             quantity: item.quantity || 1
           });
         });
-        await safeReply(msg, `✅ Adicionado ${parsed.length} itens à lista do Radar de Preços!`);
+        await reply(`✅ Adicionado ${parsed.length} itens à lista do Radar de Preços!`);
       }
     } catch (err) {
       console.error('Erro ao processar lista do WhatsApp:', err);
-      await safeReply(msg, '❌ Erro ao analisar lista. Verifique a chave de API.');
+      await reply('❌ Erro ao analisar lista. Verifique a chave de API.');
     }
   }
 
@@ -803,6 +907,7 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
 
     const messageSource = getMessageSource(msg);
     const shouldProcessMedia =
+      forcedMarket ||
       messageSource.isMonitoredMarket ||
       (msg.fromMe && includeOwnMessages) ||
       messageSource.isOwnerMessage;
@@ -826,6 +931,7 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
       if (isImage || isPdf) {
         const chat = await msg.getChat();
         const fallbackMarket =
+          forcedMarket ||
           messageSource.market ||
           chat?.name ||
           msg._data?.notifyName ||
@@ -833,14 +939,14 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
         const sourceLabel = isPdf ? 'PDF recebido pelo WhatsApp' : 'Imagem recebida pelo WhatsApp';
         const savedFilePath = saveIncomingMediaFile(media, fallbackMarket);
         console.log(`Arquivo salvo em: ${savedFilePath}`);
-        await safeReply(msg, `⏳ ${isPdf ? 'PDF' : 'Imagem'} recebido. Analisando ofertas automaticamente...`);
+        await reply(`⏳ ${isPdf ? 'PDF' : 'Imagem'} recebido. Analisando ofertas automaticamente...`);
 
         const extractedOffers = await extractOffersFromMedia(media, fallbackMarket, sourceLabel);
         importedOffers.push(...extractedOffers);
 
-        await safeReply(msg, `✅ Sucesso! Extraídas ${extractedOffers.length} ofertas para o Radar de Preços.`);
+        await reply(`✅ Sucesso! Extraídas ${extractedOffers.length} ofertas para o Radar de Preços.`);
       } else {
-        await safeReply(msg, 'Recebi a mídia, mas por enquanto processo automaticamente apenas imagens e PDFs de ofertas.');
+        await reply('Recebi a mídia, mas por enquanto processo automaticamente apenas imagens e PDFs de ofertas.');
       }
     } catch (err) {
       console.log(`Erro ao processar mídia do WhatsApp: ${getCompactError(err)}`);
@@ -854,9 +960,9 @@ async function handleWhatsAppMessage(msg, { includeOwnMessages = false } = {}) {
         errorMessage.toLowerCase().includes('carregar');
 
       if (isDownloadError) {
-        await safeReply(msg, '❌ O WhatsApp Web não liberou esse arquivo para leitura automática. Encaminhe novamente como DOCUMENTO ou salve o PDF/imagem na pasta ENTRADA_OFERTAS.');
+        await reply('❌ O WhatsApp Web não liberou esse arquivo para leitura automática. Encaminhe novamente como DOCUMENTO ou salve o PDF/imagem na pasta ENTRADA_OFERTAS.');
       } else {
-        await safeReply(msg, '❌ Erro ao analisar a mídia com IA. Verifique a chave e tente novamente.');
+        await reply('❌ Erro ao analisar a mídia com IA. Verifique a chave e tente novamente.');
       }
     }
   }
