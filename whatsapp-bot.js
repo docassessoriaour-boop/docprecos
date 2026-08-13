@@ -26,8 +26,46 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
+import { inspect } from 'node:util';
 
 dotenv.config();
+
+const botLogFile = path.resolve(process.env.WHATSAPP_BOT_LOG || 'outputs/whatsapp-bot.log');
+const botLogMaxBytes = 5 * 1024 * 1024;
+
+function formatLogValue(value) {
+  if (typeof value === 'string') return value;
+  return inspect(value, { depth: 5, colors: false, compact: true, breakLength: 180 });
+}
+
+function enablePersistentBotLog() {
+  fs.mkdirSync(path.dirname(botLogFile), { recursive: true });
+  try {
+    if (fs.existsSync(botLogFile) && fs.statSync(botLogFile).size > botLogMaxBytes) {
+      fs.renameSync(botLogFile, `${botLogFile}.anterior`);
+    }
+  } catch {
+    // O terminal continua funcionando mesmo que a rotacao do arquivo falhe.
+  }
+
+  for (const level of ['log', 'warn', 'error']) {
+    const original = console[level].bind(console);
+    console[level] = (...values) => {
+      original(...values);
+      try {
+        const timestamp = new Date().toISOString();
+        const message = values.map(formatLogValue).join(' ').replace(/\u001b\[[0-9;]*m/g, '');
+        fs.appendFileSync(botLogFile, `[${timestamp}] [${level.toUpperCase()}] ${message}\n`, 'utf8');
+      } catch {
+        // Nunca interrompe o bot por causa do arquivo de diagnostico.
+      }
+    };
+  }
+
+  console.log(`Monitoramento persistente ativo: ${botLogFile}`);
+}
+
+enablePersistentBotLog();
 
 const app = express();
 app.use((req, res, next) => {
