@@ -719,32 +719,32 @@ async function scanWhatsAppHistory() {
 }
 
 async function getScannableWhatsAppChats() {
-  try {
-    return await client.getChats();
-  } catch (error) {
-    console.log(`Leitura completa das conversas falhou (${getCompactError(error)}). Tentando uma a uma...`);
-  }
-
-  const chatIds = await client.pupPage.evaluate(() => {
-    const chats = window.require('WAWebCollections').Chat.getModelsArray();
-    return chats
-      .map(chat => chat?.id?._serialized || chat?.id?.toString?.())
-      .filter(Boolean);
-  });
   const chats = [];
+  const monitoredContacts = monitoredMarkets.flatMap(({ market, phones }) =>
+    phones.map(phone => ({ market, phone, normalizedPhone: normalizePhoneNumber(phone) }))
+  );
 
-  for (const chatId of chatIds) {
-    if (String(chatId).includes('@newsletter')) continue;
+  console.log(`Consultando diretamente ${monitoredContacts.length} numeros cadastrados...`);
+  for (const { market, phone, normalizedPhone } of monitoredContacts) {
     try {
-      const chat = await client.getChatById(chatId);
-      if (chat) chats.push(chat);
+      const numberId = await client.getNumberId(normalizedPhone);
+      if (!numberId?._serialized) {
+        console.log(`- ${market} (${phone}): numero nao localizado no WhatsApp.`);
+        continue;
+      }
+
+      const chat = await client.getChatById(numberId._serialized);
+      if (chat) {
+        chats.push(chat);
+        console.log(`- ${market} (${phone}): conversa localizada.`);
+      }
     } catch (error) {
-      console.log(`Conversa ignorada durante a varredura (${chatId}): ${getCompactError(error)}`);
+      console.log(`- ${market} (${phone}): nao foi possivel abrir a conversa (${getCompactError(error)}).`);
     }
   }
 
   if (chats.length === 0) {
-    throw new Error('O WhatsApp nao liberou nenhuma conversa para leitura. Aguarde alguns segundos e tente novamente.');
+    throw new Error('Nenhuma conversa dos numeros cadastrados foi liberada pelo WhatsApp.');
   }
 
   return chats;
