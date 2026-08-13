@@ -27,6 +27,7 @@ import dotenv from 'dotenv';
 import fs from 'node:fs';
 import path from 'node:path';
 import { inspect } from 'node:util';
+import { createDecipheriv, createHash, createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
 
 dotenv.config();
 
@@ -96,11 +97,10 @@ const monitoredMarkets = [
   { market: 'BOM JESUS', phones: ['14997782966'] }
 ];
 const GEMINI_MODEL_FALLBACKS = [
-  'gemini-2.0-flash-lite',
-  'gemini-2.5-flash-lite',
+  'gemini-flash-lite-latest',
   'gemini-flash-latest',
-  'gemini-2.5-flash',
-  'gemini-2.0-flash'
+  'gemini-3.1-flash-lite',
+  'gemini-3-flash-preview'
 ];
 
 // In-memory data store for WhatsApp imports
@@ -118,11 +118,19 @@ let historyScan = {
   processedMedia: 0,
   error: null
 };
+let productionSync = {
+  lastSyncAt: null,
+  lastOffersDelivered: 0,
+  lastShoppingItemsDelivered: 0,
+  totalOffersDelivered: 0
+};
 let quotaPausedUntil = 0;
 let client;
 let isRestartingWhatsAppClient = false;
 let initializeRetryCount = 0;
 let isWhatsAppReady = false;
+let apiServer;
+let isStartingApiServer = false;
 
 function normalizePhoneNumber(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -255,11 +263,12 @@ async function generateWithGeminiFallback(contents) {
     } catch (error) {
       lastError = error;
       const message = String(error?.message || error || '').toLowerCase();
+      console.log(`Modelo Gemini ${modelName} indisponivel: ${getCompactError(error)}`);
       const canTryNextModel =
         message.includes('404') ||
         message.includes('no longer available') ||
         message.includes('not found') ||
-        message.includes('model');
+        message.includes('not available');
 
       if (!canTryNextModel) {
         throw error;
@@ -461,10 +470,102 @@ async function downloadMediaDirectlyFromWhatsApp(msg) {
   return result?.data && result?.mimetype ? result : undefined;
 }
 
-async function downloadMediaWithRetry(msg, attempts = 4) {
+function getWhatsAppMediaKeyInfo(msg) {
+  const mimetype = String(msg?._data?.mimetype || '').toLowerCase();
+  const type = String(msg?.type || msg?._data?.type || '').toLowerCase();
+  if (mimetype.startsWith('image/') || type === 'image' || type === 'sticker') return 'WhatsApp Image Keys';
+  if (mimetype.startsWith('video/') || type === 'video' || type === 'gif') return 'WhatsApp Video Keys';
+  if (mimetype.startsWith('audio/') || type === 'audio' || type === 'ptt') return 'WhatsApp Audio Keys';
+  return 'WhatsApp Document Keys';
+}
+
+function normalizeBase64(value) {
+  return String(value || '').replace(/-/g, '+').replace(/_/g, '/').replace(/=+$/g, '');
+}
+
+function assertMediaHash(buffer, expectedHash, label) {
+  if (!expectedHash) return;
+  const actualHash = createHash('sha256').update(buffer).digest('base64');
+  if (normalizeBase64(actualHash) !== normalizeBase64(expectedHash)) {
+    throw new Error(`${label} da midia nao confere.`);
+  }
+}
+
+async function downloadMediaFromWhatsAppCdn(msg) {
+  const data = msg?._data || {};
+  const directPath = data.directPath;
+  const rawMediaKey = data.mediaKey || msg.mediaKey;
+  if (!directPath || !rawMediaKey) return undefined;
+
+  const mediaUrl = /^https?:\/\//i.test(directPath)
+    ? directPath
+    : `https://mmg.whatsapp.net${directPath}`;
+  const response = await fetch(mediaUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0',
+      'Accept': '*/*',
+      'Origin': 'https://web.whatsapp.com',
+      'Referer': 'https://web.whatsapp.com/'
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`Servidor de midia respondeu HTTP ${response.status}.`);
+  }
+
+  const encryptedPayload = Buffer.from(await response.arrayBuffer());
+  if (encryptedPayload.length <= 10) throw new Error('Arquivo de midia criptografado esta vazio.');
+  assertMediaHash(encryptedPayload, data.encFilehash, 'Hash criptografado');
+
+  const mediaKey = typeof rawMediaKey === 'string'
+    ? Buffer.from(rawMediaKey, 'base64')
+    : Buffer.from(rawMediaKey?.data || rawMediaKey);
+  if (mediaKey.length !== 32) throw new Error(`Chave de midia invalida (${mediaKey.length} bytes).`);
+
+  const expandedKey = Buffer.from(hkdfSync(
+    'sha256',
+    mediaKey,
+    Buffer.alloc(32),
+    Buffer.from(getWhatsAppMediaKeyInfo(msg), 'utf8'),
+    112
+  ));
+  const iv = expandedKey.subarray(0, 16);
+  const cipherKey = expandedKey.subarray(16, 48);
+  const macKey = expandedKey.subarray(48, 80);
+  const ciphertext = encryptedPayload.subarray(0, -10);
+  const receivedMac = encryptedPayload.subarray(-10);
+  const expectedMac = createHmac('sha256', macKey)
+    .update(Buffer.concat([iv, ciphertext]))
+    .digest()
+    .subarray(0, 10);
+  if (!timingSafeEqual(receivedMac, expectedMac)) throw new Error('Assinatura da midia nao confere.');
+
+  const decipher = createDecipheriv('aes-256-cbc', cipherKey, iv);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  assertMediaHash(decrypted, data.filehash, 'Hash descriptografado');
+
+  return {
+    data: decrypted.toString('base64'),
+    mimetype: data.mimetype || 'application/octet-stream',
+    filename: data.filename,
+    filesize: data.size || decrypted.length
+  };
+}
+
+async function downloadMediaWithRetry(msg, attempts = 2) {
   let lastError;
 
   for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      const cdnMedia = await downloadMediaFromWhatsAppCdn(msg);
+      if (cdnMedia?.data && cdnMedia?.mimetype) {
+        console.log(`Download direto do servidor de midia concluido (${cdnMedia.filesize} bytes).`);
+        return cdnMedia;
+      }
+    } catch (error) {
+      lastError = error;
+      console.log(`Tentativa ${attempt}/${attempts}: servidor de midia indisponivel (${getCompactError(error)}).`);
+    }
+
     try {
       const streamedMedia = await downloadMediaViaStream(msg);
       if (streamedMedia?.data && streamedMedia?.mimetype) {
@@ -686,6 +787,14 @@ app.get('/api/whatsapp-scan-history', (req, res) => {
   res.json(historyScan);
 });
 
+app.get('/api/whatsapp-sync-status', (req, res) => {
+  res.json({
+    ...productionSync,
+    queuedOffers: importedOffers.length,
+    queuedShoppingItems: pendingShoppingItems.length
+  });
+});
+
 function startWhatsAppHistoryScan() {
   if (!isWhatsAppReady || !client) {
     return { started: false, statusCode: 503, error: 'WhatsApp ainda nao esta conectado.' };
@@ -894,16 +1003,62 @@ async function fetchCachedGroupMessagesFromMonitoredSenders(conversations, oldes
 
 // Endpoint to clear imports
 app.post('/api/whatsapp-clear', (req, res) => {
+  const origin = String(req.get('origin') || '');
+  const isBrowserRequest = Boolean(origin);
+  const isProductionSite = origin === 'https://docprecos.vercel.app';
+
+  if (isBrowserRequest && !isProductionSite) {
+    return res.json({
+      success: true,
+      retainedForProduction: true,
+      queuedOffers: importedOffers.length,
+      queuedShoppingItems: pendingShoppingItems.length
+    });
+  }
+
+  const deliveredOffers = importedOffers.length;
+  const deliveredShoppingItems = pendingShoppingItems.length;
   importedOffers = [];
   pendingShoppingItems = [];
-  res.json({ success: true });
+  if (isProductionSite) {
+    productionSync = {
+      lastSyncAt: new Date().toISOString(),
+      lastOffersDelivered: deliveredOffers,
+      lastShoppingItemsDelivered: deliveredShoppingItems,
+      totalOffersDelivered: productionSync.totalOffersDelivered + deliveredOffers
+    };
+    console.log(`Site de producao confirmou ${deliveredOffers} ofertas importadas.`);
+  }
+  res.json({ success: true, deliveredOffers, deliveredShoppingItems });
 });
 
 // Start Express Server
-app.listen(PORT, () => {
-  console.log(`\n🚀 Servidor do Bot rodando em http://localhost:${PORT}`);
-  startOffersInboxWatcher();
-});
+function startApiServer() {
+  if (apiServer?.listening || isStartingApiServer) return;
+  isStartingApiServer = true;
+  const server = app.listen(PORT);
+
+  server.once('listening', () => {
+    apiServer = server;
+    isStartingApiServer = false;
+    console.log(`\n🚀 Servidor do Bot rodando em http://localhost:${PORT}`);
+    startOffersInboxWatcher();
+  });
+
+  server.once('error', error => {
+    isStartingApiServer = false;
+    try { server.close(); } catch {}
+    if (error?.code === 'EADDRINUSE') {
+      console.log(`Porta ${PORT} ainda ocupada pelo coletor anterior. Tentando novamente em 3 segundos...`);
+      setTimeout(startApiServer, 3000);
+      return;
+    }
+    console.error('Falha ao iniciar a API local:', error);
+    setTimeout(startApiServer, 5000);
+  });
+}
+
+startApiServer();
 
 if (!apiKey) {
   console.log('⚠️ AVISO: GEMINI_API_KEY não definida no arquivo .env.');
@@ -1124,11 +1279,19 @@ async function handleWhatsAppMessage(msg, {
       const isPdf = media.mimetype === 'application/pdf';
 
       if (isImage || isPdf) {
-        const chat = await msg.getChat();
+        let chatName = '';
+        if (!forcedMarket && !messageSource.market) {
+          try {
+            const chat = await msg.getChat();
+            chatName = chat?.name || '';
+          } catch (error) {
+            console.log(`Nome do grupo indisponivel; usando remetente/mercado cadastrado (${getCompactError(error)}).`);
+          }
+        }
         const fallbackMarket =
           forcedMarket ||
           messageSource.market ||
-          chat?.name ||
+          chatName ||
           msg._data?.notifyName ||
           'WhatsApp encaminhado';
         const sourceLabel = isPdf ? 'PDF recebido pelo WhatsApp' : 'Imagem recebida pelo WhatsApp';
@@ -1138,6 +1301,7 @@ async function handleWhatsAppMessage(msg, {
 
         const extractedOffers = await extractOffersFromMedia(media, fallbackMarket, sourceLabel);
         importedOffers.push(...extractedOffers);
+        console.log(`IA concluiu ${fallbackMarket}: ${extractedOffers.length} ofertas extraidas.`);
 
         await reply(`✅ Sucesso! Extraídas ${extractedOffers.length} ofertas para o Radar de Preços.`);
       } else {
