@@ -367,6 +367,15 @@ body {
   color: var(--text-secondary);
 }
 
+.product-inserted-at {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-top: 0.75rem;
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+
 /* Shopping List simulator grid */
 .simulator-layout {
   display: grid;

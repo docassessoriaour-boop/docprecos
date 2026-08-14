@@ -462,6 +462,7 @@ function normalizeOffer(rawItem, idx, fallbackMarket, sourceLabel) {
     city: rawItem.city || 'Ourinhos',
     startDate: validityVerified ? (extractedStartDate || launchDate) : launchDate,
     endDate: validityVerified ? extractedEndDate : launchDate,
+    insertedAt: new Date().toISOString(),
     source: sourceLabel,
     validityVerified
   };

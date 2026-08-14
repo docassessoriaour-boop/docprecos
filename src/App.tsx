@@ -14,6 +14,7 @@ import {
   Eye,
   EyeOff,
   Calendar,
+  Clock,
   Globe,
   Link as LinkIcon,
   Image as ImageIcon,
@@ -192,6 +193,30 @@ const getProductLaunchDate = (product: Product) => {
   return Number.isNaN(importedAt.getTime()) ? undefined : formatOfferDate(importedAt);
 };
 
+const getProductInsertionDateTime = (product: Product) => {
+  if (product.insertedAt) {
+    const informedDate = new Date(product.insertedAt);
+    if (!Number.isNaN(informedDate.getTime())) return informedDate.toISOString();
+  }
+
+  const timestampMatch = product.id.match(/(?:^|\D)(\d{13})(?:\D|$)/);
+  if (!timestampMatch) return undefined;
+
+  const importedAt = new Date(Number(timestampMatch[1]));
+  return Number.isNaN(importedAt.getTime()) ? undefined : importedAt.toISOString();
+};
+
+const formatProductInsertionDateTime = (value?: string) => {
+  if (!value) return 'Data de inserção não disponível';
+  const insertedAt = new Date(value);
+  if (Number.isNaN(insertedAt.getTime())) return 'Data de inserção não disponível';
+
+  return `Inserido em ${insertedAt.toLocaleDateString('pt-BR')} às ${insertedAt.toLocaleTimeString('pt-BR', {
+    hour: '2-digit',
+    minute: '2-digit'
+  })}`;
+};
+
 const removeExpiredProducts = (products: Product[]) =>
   removeDuplicateProducts(
     products
@@ -207,6 +232,7 @@ const removeExpiredProducts = (products: Product[]) =>
 
         return {
           ...normalizedProduct,
+          insertedAt: getProductInsertionDateTime(product),
           startDate: normalizedProduct.startDate || launchDate,
           endDate: normalizedProduct.endDate || launchDate
         };
@@ -3850,6 +3876,10 @@ export default function App() {
                     <div className="product-price-row">
                       <span className="product-price">R$ {p.price.toFixed(2)}</span>
                       <span className="product-unit">Unidade: {p.unit}</span>
+                    </div>
+                    <div className="product-inserted-at">
+                      <Clock size={13} />
+                      <span>{formatProductInsertionDateTime(p.insertedAt)}</span>
                     </div>
                     <div style={{ display: 'flex', gap: '0.65rem', marginTop: '1.2rem' }}>
                       <button

@@ -8,6 +8,7 @@ export interface Product {
   city: string;
   startDate?: string; // Format: YYYY-MM-DD
   endDate?: string;   // Format: YYYY-MM-DD
+  insertedAt?: string; // ISO date-time when the product entered the catalog
   source?: string;
   validityVerified?: boolean;
 }
