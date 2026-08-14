@@ -144,6 +144,7 @@ const monitoredPhoneToMarket = new Map(
     phones.map(phone => [normalizePhoneNumber(phone), market])
   )
 );
+const monitoredIdentityToMarket = new Map(monitoredPhoneToMarket);
 
 function getBareWhatsAppNumber(value) {
   return String(value || '')
@@ -151,14 +152,31 @@ function getBareWhatsAppNumber(value) {
     .replace(/\D/g, '');
 }
 
+function getWhatsAppIdentity(value) {
+  return String(value?._serialized || value || '').trim();
+}
+
+function registerMonitoredIdentity(identity, market) {
+  const serializedIdentity = getWhatsAppIdentity(identity);
+  if (!serializedIdentity || !market) return;
+
+  monitoredIdentityToMarket.set(serializedIdentity, market);
+  const bareIdentity = getBareWhatsAppNumber(serializedIdentity);
+  if (bareIdentity) monitoredIdentityToMarket.set(bareIdentity, market);
+}
+
+function getMarketFromIdentity(identity) {
+  const serializedIdentity = getWhatsAppIdentity(identity);
+  const bareIdentity = getBareWhatsAppNumber(serializedIdentity);
+  return monitoredIdentityToMarket.get(serializedIdentity) ||
+    monitoredIdentityToMarket.get(bareIdentity);
+}
+
 function getMessageSource(msg) {
-  const senderNumber = getBareWhatsAppNumber(msg.author || msg.from);
-  const chatNumber = getBareWhatsAppNumber(msg.from);
-  const targetNumber = getBareWhatsAppNumber(msg.to);
   const market =
-    monitoredPhoneToMarket.get(senderNumber) ||
-    monitoredPhoneToMarket.get(chatNumber) ||
-    monitoredPhoneToMarket.get(targetNumber);
+    getMarketFromIdentity(msg.author) ||
+    getMarketFromIdentity(msg.from) ||
+    getMarketFromIdentity(msg.to);
 
   return {
     market,
@@ -1028,6 +1046,7 @@ async function getScannableWhatsAppConversations() {
       } catch {
         // O numero principal ainda permite consultar a conversa direta.
       }
+      identities.forEach(identity => registerMonitoredIdentity(identity, market));
       conversations.push({ market, phone, chatId: numberId._serialized, identities: [...identities] });
       console.log(`- ${market} (${phone}): numero validado.`);
     } catch (error) {
@@ -1376,7 +1395,7 @@ async function handleWhatsAppMessage(msg, {
       messageSource.isMonitoredMarket;
 
     if (!shouldProcessMedia) {
-      console.log(`Mídia ignorada: remetente fora da lista monitorada (${msg.author || msg.from}).`);
+      console.log('Mídia ignorada: conversa não cadastrada como mercado.');
       return;
     }
 
