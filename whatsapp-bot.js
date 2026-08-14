@@ -414,6 +414,18 @@ function normalizeMarketName(value, fallback = 'Mercado não informado') {
     : `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(' ');
 }
 
+function hasDateEvidence(dateValue, evidenceValue) {
+  if (!dateValue) return false;
+  const evidence = String(evidenceValue || '').trim();
+  if (!evidence) return false;
+
+  const [year, month, day] = dateValue.split('-');
+  const numericEvidence = evidence.replace(/\s+/g, ' ');
+  return numericEvidence.includes(`${day}/${month}/${year}`) ||
+    numericEvidence.includes(`${day}/${month}`) ||
+    numericEvidence.includes(dateValue);
+}
+
 function isQuotaError(error) {
   const message = String(error?.message || error || '').toLowerCase();
   return (
@@ -435,6 +447,9 @@ function pauseForQuota(error) {
 
 function normalizeOffer(rawItem, idx, fallbackMarket, sourceLabel) {
   const market = normalizeMarketName(rawItem.market || fallbackMarket, 'WhatsApp');
+  const extractedStartDate = sanitizeDate(rawItem.startDate);
+  const extractedEndDate = sanitizeDate(rawItem.endDate);
+  const validityVerified = hasDateEvidence(extractedEndDate, rawItem.validityEvidence);
 
   return {
     id: `wa-offer-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000000)}`,
@@ -444,9 +459,10 @@ function normalizeOffer(rawItem, idx, fallbackMarket, sourceLabel) {
     unit: rawItem.unit || 'un',
     market,
     city: rawItem.city || 'Ourinhos',
-    startDate: sanitizeDate(rawItem.startDate),
-    endDate: sanitizeDate(rawItem.endDate),
-    source: sourceLabel
+    startDate: validityVerified ? extractedStartDate : undefined,
+    endDate: validityVerified ? extractedEndDate : undefined,
+    source: sourceLabel,
+    validityVerified
   };
 }
 
@@ -714,6 +730,7 @@ async function extractOffersFromMedia(media, fallbackMarket, sourceLabel) {
     Se o nome do supermercado estiver visível, retorne esse nome no campo "market". Se não estiver visível, use "${fallbackMarket}".
     Retorne datas somente quando estiverem explicitamente visíveis e legíveis. Nunca estime ou invente uma validade.
     Se houver data de validade, retorne em AAAA-MM-DD. Se houver apenas dia e mês, use o ano atual ${new Date().getFullYear()}; se a faixa atravessar dezembro/janeiro, o fim pertence ao ano seguinte.
+    No campo "validityEvidence", copie exatamente o pequeno trecho visível que comprova a validade (por exemplo, "Ofertas válidas até 16/08"). Se não houver esse texto na imagem, deixe startDate, endDate e validityEvidence vazios.
     Se houver mais de um preço para o mesmo item, use o preço principal destacado na oferta.
     Se a marca estiver no nome, mantenha no campo "name". Se não souber a unidade, use "un".
     Nao retorne lista vazia quando houver qualquer produto com preço visível.
@@ -728,7 +745,8 @@ async function extractOffersFromMedia(media, fallbackMarket, sourceLabel) {
         "market": "Nome do Supermercado",
         "city": "Ourinhos",
         "startDate": "YYYY-MM-DD",
-        "endDate": "YYYY-MM-DD"
+        "endDate": "YYYY-MM-DD",
+        "validityEvidence": "trecho exato visível que informa a validade"
       }
     ]
   `;

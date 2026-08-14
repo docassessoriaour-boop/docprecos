@@ -184,7 +184,15 @@ const removeDuplicateProducts = (products: Product[]) => {
 const removeExpiredProducts = (products: Product[]) =>
   removeDuplicateProducts(
     products
-      .map(product => normalizeOfferDateRange({ ...product, market: normalizeMarketName(product.market) }))
+      .map(product => {
+        const isUnverifiedWhatsAppOffer = product.source?.toLowerCase().includes('whatsapp') && product.validityVerified !== true;
+        return normalizeOfferDateRange({
+          ...product,
+          market: normalizeMarketName(product.market),
+          startDate: isUnverifiedWhatsAppOffer ? undefined : product.startDate,
+          endDate: isUnverifiedWhatsAppOffer ? undefined : product.endDate
+        });
+      })
       .filter(product => !isOfferExpired(product.endDate))
   );
 

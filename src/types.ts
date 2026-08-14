@@ -8,6 +8,8 @@ export interface Product {
   city: string;
   startDate?: string; // Format: YYYY-MM-DD
   endDate?: string;   // Format: YYYY-MM-DD
+  source?: string;
+  validityVerified?: boolean;
 }
 
 export interface ShoppingItem {
