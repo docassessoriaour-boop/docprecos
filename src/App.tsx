@@ -496,6 +496,10 @@ const normalizePackageText = (value: string) =>
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/(\d)\s*([,.])\s*(\d)/g, '$1$2$3')
+    // Percentuais promocionais (ex.: "gratis 10%") nao representam
+    // quantidade de embalagens e nao podem virar "10 un" ao concatenar
+    // nome e unidade do produto.
+    .replace(/\d+(?:[,.]\d+)?\s*%/g, ' ')
     .replace(/[^a-z0-9,.\/\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -559,7 +563,14 @@ const getProductPackageInfo = (value: string): ProductPackageInfo | null => {
   const amount = parseDecimalNumber(packageMatch[1]);
   const rawUnit = packageMatch[2];
   const countMultiplier = packageMatches
-    .filter(match => match !== packageMatch && isCountPackageUnit(match[2]))
+    // Em formatos como "6un 500ml", a contagem antes do peso/volume e um
+    // multiplicador. Uma contagem depois da medida normalmente vem do campo
+    // de unidade ("un") ou de texto promocional e nao deve multiplicar a base.
+    .filter(match =>
+      match !== packageMatch &&
+      isCountPackageUnit(match[2]) &&
+      (match.index ?? Number.POSITIVE_INFINITY) < (packageMatch.index ?? 0)
+    )
     .map(match => parseDecimalNumber(match[1]))
     .find(matchAmount => Number.isFinite(matchAmount) && matchAmount > 1);
   const looseMultiplier = text.match(/(?:^|\s)(?:c|com|pack|kit|leve|pacote)\s*(?:\/\s*)?(\d+)(?:\s|$)/);
