@@ -1,6 +1,7 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { Product } from '../types';
 import { getTodayOfferDate, sanitizeOfferDate } from './offerDates';
+import { normalizeMarketName } from './marketNames';
 
 const GEMINI_MODEL_FALLBACKS = [
   'gemini-3.5-flash',
@@ -125,7 +126,7 @@ export async function extractOffersWithGemini(
         price: parsePrice(item.price),
         category: item.category || 'Outros',
         unit: item.unit || 'un',
-        market: marketName,
+        market: normalizeMarketName(marketName),
         city: city,
         startDate: sanitizeOfferDate(item.startDate),
         endDate: sanitizeOfferDate(item.endDate)
@@ -210,7 +211,7 @@ export async function extractOffersFromImage(
         price: parsePrice(item.price),
         category: item.category || 'Outros',
         unit: item.unit || 'un',
-        market: marketName,
+        market: normalizeMarketName(marketName),
         city: city,
         startDate: sanitizeOfferDate(item.startDate),
         endDate: sanitizeOfferDate(item.endDate)
@@ -288,7 +289,7 @@ export async function extractOffersFromPDFFile(
       price: parsePrice(item.price),
       category: item.category || 'Outros',
       unit: item.unit || 'un',
-      market: marketName,
+      market: normalizeMarketName(marketName),
       city,
       startDate: sanitizeOfferDate(item.startDate),
       endDate: sanitizeOfferDate(item.endDate)
@@ -374,7 +375,7 @@ export function extractOffersFallback(
           price: price,
           category: category,
           unit: unit,
-          market: marketName,
+          market: normalizeMarketName(marketName),
           city: city,
           startDate,
           endDate
@@ -426,7 +427,7 @@ export function generateDemoOffers(marketName: string, city: string = 'Ourinhos'
     price: +(item.price * (0.85 + Math.random() * 0.3)).toFixed(2),
     category: item.category,
     unit: item.unit,
-    market: marketName,
+    market: normalizeMarketName(marketName),
     city: city,
     startDate,
     endDate
@@ -532,7 +533,7 @@ export async function searchOffersOnline(
             price,
             category: item.category || 'Outros',
             unit: item.unit || 'un',
-            market: String(item.market || '').trim() || 'Supermercado Online',
+            market: normalizeMarketName(item.market, 'Supermercado Online'),
             city: city,
             startDate: sanitizeOfferDate(item.startDate),
             endDate

@@ -378,6 +378,39 @@ function sanitizeDate(value) {
     : undefined;
 }
 
+const CANONICAL_MARKET_NAMES = {
+  amigao: 'Amigão',
+  atacadao: 'Atacadão',
+  'atacadao ourinhos': 'Atacadão',
+  max: 'Max',
+  'max atacadista': 'Max',
+  'sagrada familia': 'Sagrada Família',
+  'sao judas': 'São Judas',
+  'bom jesus': 'Bom Jesus',
+  'bom preco': 'Bom Preço',
+  'extra baratao': 'Extra Baratão',
+  'compre bem': 'Compre Bem'
+};
+
+function normalizeMarketName(value, fallback = 'Mercado não informado') {
+  const key = String(value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(?:supermercados?|mercados?|rede|loja)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!key) return fallback;
+  if (CANONICAL_MARKET_NAMES[key]) return CANONICAL_MARKET_NAMES[key];
+
+  const smallWords = new Set(['da', 'das', 'de', 'do', 'dos', 'e']);
+  return key.split(' ').map((word, index) => index > 0 && smallWords.has(word)
+    ? word
+    : `${word.charAt(0).toUpperCase()}${word.slice(1)}`).join(' ');
+}
+
 function isQuotaError(error) {
   const message = String(error?.message || error || '').toLowerCase();
   return (
@@ -398,7 +431,7 @@ function pauseForQuota(error) {
 }
 
 function normalizeOffer(rawItem, idx, fallbackMarket, sourceLabel) {
-  const market = String(rawItem.market || fallbackMarket || 'WhatsApp').trim();
+  const market = normalizeMarketName(rawItem.market || fallbackMarket, 'WhatsApp');
 
   return {
     id: `wa-offer-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000000)}`,

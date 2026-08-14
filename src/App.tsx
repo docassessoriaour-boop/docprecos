@@ -23,6 +23,7 @@ import type { Product, ShoppingItem, MarketComparison, OptimizedItem } from './t
 import { extractTextFromPDF } from './utils/pdfParser';
 import { extractOffersWithGemini, extractOffersFallback, generateDemoOffers, fetchHtmlFromUrl, extractOffersFromImage, extractOffersFromPDFFile, searchOffersOnline, parseInformalShoppingList } from './utils/geminiExtractor';
 import { getTodayDateOnly, getTodayOfferDate, isOfferExpired, normalizeOfferDateRange, parseOfferDate } from './utils/offerDates';
+import { normalizeMarketName } from './utils/marketNames';
 import defaultProductsData from './data/defaultProducts.json';
 import './App.css';
 
@@ -182,7 +183,9 @@ const removeDuplicateProducts = (products: Product[]) => {
 
 const removeExpiredProducts = (products: Product[]) =>
   removeDuplicateProducts(
-    products.map(normalizeOfferDateRange).filter(product => !isOfferExpired(product.endDate))
+    products
+      .map(product => normalizeOfferDateRange({ ...product, market: normalizeMarketName(product.market) }))
+      .filter(product => !isOfferExpired(product.endDate))
   );
 
 const DEFAULT_PRODUCTS = removeExpiredProducts(defaultProductsData as Product[]);
