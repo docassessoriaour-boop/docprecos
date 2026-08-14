@@ -241,7 +241,7 @@ const loadSavedProducts = () => {
 };
 
 const SEARCH_STOP_WORDS = new Set([
-  'de', 'da', 'do', 'das', 'dos', 'e', 'com', 'sem', 'para', 'por', 'tipo',
+  'de', 'da', 'do', 'das', 'dos', 'e', 'em', 'com', 'sem', 'para', 'por', 'tipo',
   'un', 'unidade', 'kg', 'g', 'l', 'ml', 'litro', 'litros', 'pacote', 'pct'
 ]);
 
@@ -482,8 +482,14 @@ const mergeDefaultClientPreLists = (lists: ClientPreList[]) => {
   return [DEFAULT_VOVO_NENA_PRE_LIST, ...otherLists];
 };
 
+const hasCompleteSearchPhrase = (text: string, phrase: string) => {
+  const normalizedText = normalizeSearchText(text);
+  const normalizedPhrase = normalizeSearchText(phrase);
+  return Boolean(normalizedPhrase) && ` ${normalizedText} `.includes(` ${normalizedPhrase} `);
+};
+
 const hasNormalizedPhrase = (text: string, phrases: string[]) =>
-  phrases.some(phrase => text.includes(normalizeSearchText(phrase)));
+  phrases.some(phrase => hasCompleteSearchPhrase(text, phrase));
 
 const parseDecimalNumber = (value: string) => Number(value.replace(',', '.'));
 
@@ -1012,15 +1018,13 @@ const isExcludedProductMatch = (query: string, productName: string) => {
   });
 };
 
-const tokenMatchesProductText = (token: string, productTokens: Set<string>, productText: string) =>
-  productTokens.has(token) || (token.length >= 4 && productText.includes(token));
+const tokenMatchesProductText = (token: string, productTokens: Set<string>) =>
+  productTokens.has(token);
 
 const getProductMatchScore = (query: string, product: Product) => {
   const normalizedQuery = normalizeSearchText(query);
   const normalizedName = normalizeSearchText(product.name);
   const normalizedProductText = normalizeSearchText(`${product.name} ${product.unit}`);
-  const normalizedCategory = normalizeSearchText(product.category);
-  const normalizedMarket = normalizeSearchText(product.market);
   const queryProfile = getProductSearchProfile(query);
   const productProfile = getProductSearchProfile(`${product.name} ${product.unit}`);
   const hasSameKnownFamily = queryProfile.family !== 'unknown' && productProfile.family === queryProfile.family;
@@ -1029,9 +1033,9 @@ const getProductMatchScore = (query: string, product: Product) => {
   if (isStrictProductMismatch(query, `${product.name} ${product.unit}`)) return 0;
   if (isExcludedProductMatch(query, product.name)) return 0;
   if (normalizedName === normalizedQuery) return 100;
-  if (normalizedName.includes(normalizedQuery)) return 90;
-  if (normalizedProductText.includes(normalizedQuery)) return 88;
-  if (normalizedQuery.includes(normalizedName)) return 80;
+  if (hasCompleteSearchPhrase(normalizedName, normalizedQuery)) return 90;
+  if (hasCompleteSearchPhrase(normalizedProductText, normalizedQuery)) return 88;
+  if (hasCompleteSearchPhrase(normalizedQuery, normalizedName)) return 80;
 
   const queryTokens = getSearchTokens(query);
   if (queryTokens.length === 0) return 0;
@@ -1043,14 +1047,12 @@ const getProductMatchScore = (query: string, product: Product) => {
     ...getSearchTokens(product.unit)
   ]);
 
-  const hits = queryTokens.filter(token =>
-    tokenMatchesProductText(token, productTokens, normalizedName) ||
-    (token.length >= 4 && (normalizedCategory.includes(token) || normalizedMarket.includes(token)))
-  ).length;
+  const hits = queryTokens.filter(token => tokenMatchesProductText(token, productTokens)).length;
 
   const score = hits / queryTokens.length;
 
   if (queryTokens.length <= 2 && score !== 1 && !hasSameKnownFamily) return 0;
+  if (queryTokens.length > 2 && score < (hasSameKnownFamily ? 0.5 : 0.6)) return 0;
 
   return hasSameKnownFamily ? score + 0.25 : score;
 };
@@ -1072,8 +1074,8 @@ const getSavedListItemOfferScore = (query: string, product: Product) => {
   if (isStrictProductMismatch(query, `${product.name} ${product.unit}`)) return 0;
   if (isExcludedProductMatch(query, product.name)) return 0;
   if (normalizedName === normalizedQuery) return 100;
-  if (normalizedName.includes(normalizedQuery)) return 90;
-  if (normalizedProductText.includes(normalizedQuery)) return 88;
+  if (hasCompleteSearchPhrase(normalizedName, normalizedQuery)) return 90;
+  if (hasCompleteSearchPhrase(normalizedProductText, normalizedQuery)) return 88;
 
   const queryTokens = getSearchTokens(query);
   if (queryTokens.length === 0) return 0;
@@ -1083,7 +1085,7 @@ const getSavedListItemOfferScore = (query: string, product: Product) => {
     ...getSearchTokens(product.category),
     ...getSearchTokens(product.unit)
   ]);
-  const hits = queryTokens.filter(token => tokenMatchesProductText(token, productTokens, normalizedProductText)).length;
+  const hits = queryTokens.filter(token => tokenMatchesProductText(token, productTokens)).length;
   let score = hits / queryTokens.length;
 
   if (queryTokens.length <= 2) {
