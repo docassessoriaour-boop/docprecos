@@ -426,6 +426,13 @@ function hasDateEvidence(dateValue, evidenceValue) {
     numericEvidence.includes(dateValue);
 }
 
+function getLocalDateString(date = new Date()) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 function isQuotaError(error) {
   const message = String(error?.message || error || '').toLowerCase();
   return (
@@ -450,6 +457,7 @@ function normalizeOffer(rawItem, idx, fallbackMarket, sourceLabel) {
   const extractedStartDate = sanitizeDate(rawItem.startDate);
   const extractedEndDate = sanitizeDate(rawItem.endDate);
   const validityVerified = hasDateEvidence(extractedEndDate, rawItem.validityEvidence);
+  const launchDate = getLocalDateString();
 
   return {
     id: `wa-offer-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000000)}`,
@@ -459,8 +467,8 @@ function normalizeOffer(rawItem, idx, fallbackMarket, sourceLabel) {
     unit: rawItem.unit || 'un',
     market,
     city: rawItem.city || 'Ourinhos',
-    startDate: validityVerified ? extractedStartDate : undefined,
-    endDate: validityVerified ? extractedEndDate : undefined,
+    startDate: validityVerified ? (extractedStartDate || launchDate) : launchDate,
+    endDate: validityVerified ? extractedEndDate : launchDate,
     source: sourceLabel,
     validityVerified
   };

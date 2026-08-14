@@ -22,7 +22,7 @@ import {
 import type { Product, ShoppingItem, MarketComparison, OptimizedItem } from './types';
 import { extractTextFromPDF } from './utils/pdfParser';
 import { extractOffersWithGemini, extractOffersFallback, generateDemoOffers, fetchHtmlFromUrl, extractOffersFromImage, extractOffersFromPDFFile, searchOffersOnline, parseInformalShoppingList } from './utils/geminiExtractor';
-import { getTodayDateOnly, getTodayOfferDate, isOfferExpired, normalizeOfferDateRange, parseOfferDate } from './utils/offerDates';
+import { formatOfferDate, getTodayDateOnly, getTodayOfferDate, isOfferExpired, normalizeOfferDateRange, parseOfferDate } from './utils/offerDates';
 import { normalizeMarketName } from './utils/marketNames';
 import defaultProductsData from './data/defaultProducts.json';
 import './App.css';
@@ -181,17 +181,35 @@ const removeDuplicateProducts = (products: Product[]) => {
   });
 };
 
+const getProductLaunchDate = (product: Product) => {
+  const informedStartDate = parseOfferDate(product.startDate);
+  if (informedStartDate) return product.startDate;
+
+  const timestampMatch = product.id.match(/(?:^|\D)(\d{13})(?:\D|$)/);
+  if (!timestampMatch) return undefined;
+
+  const importedAt = new Date(Number(timestampMatch[1]));
+  return Number.isNaN(importedAt.getTime()) ? undefined : formatOfferDate(importedAt);
+};
+
 const removeExpiredProducts = (products: Product[]) =>
   removeDuplicateProducts(
     products
       .map(product => {
         const isUnverifiedWhatsAppOffer = product.source?.toLowerCase().includes('whatsapp') && product.validityVerified !== true;
-        return normalizeOfferDateRange({
+        const normalizedProduct = normalizeOfferDateRange({
           ...product,
           market: normalizeMarketName(product.market),
           startDate: isUnverifiedWhatsAppOffer ? undefined : product.startDate,
           endDate: isUnverifiedWhatsAppOffer ? undefined : product.endDate
         });
+        const launchDate = getProductLaunchDate({ ...product, startDate: normalizedProduct.startDate });
+
+        return {
+          ...normalizedProduct,
+          startDate: normalizedProduct.startDate || launchDate,
+          endDate: normalizedProduct.endDate || launchDate
+        };
       })
       .filter(product => !isOfferExpired(product.endDate))
   );
@@ -3820,13 +3838,28 @@ export default function App() {
                       <span className="product-price">R$ {p.price.toFixed(2)}</span>
                       <span className="product-unit">Unidade: {p.unit}</span>
                     </div>
-                    <button 
-                      className="btn-primary" 
-                      style={{ width: '100%', marginTop: '1.2rem', justifyContent: 'center', padding: '0.5rem' }}
-                      onClick={() => addToShoppingList(p.name)}
-                    >
-                      <Plus size={16} /> Adicionar
-                    </button>
+                    <div style={{ display: 'flex', gap: '0.65rem', marginTop: '1.2rem' }}>
+                      <button
+                        className="btn-primary"
+                        style={{ flex: 1, justifyContent: 'center', padding: '0.5rem' }}
+                        onClick={() => addToShoppingList(p.name)}
+                      >
+                        <Plus size={16} /> Adicionar
+                      </button>
+                      <button
+                        className="btn-secondary"
+                        style={{ justifyContent: 'center', padding: '0.5rem 0.75rem', color: 'var(--accent-danger)' }}
+                        aria-label={`Excluir ${p.name} do catálogo`}
+                        title="Excluir preço/produto"
+                        onClick={() => {
+                          if (window.confirm(`Excluir o preço de “${p.name}” no ${p.market}?`)) {
+                            setProducts(prev => prev.filter(product => product.id !== p.id));
+                          }
+                        }}
+                      >
+                        <Trash2 size={16} /> Excluir
+                      </button>
+                    </div>
                   </div>
                 );
               })}
