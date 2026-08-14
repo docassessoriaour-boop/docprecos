@@ -384,6 +384,8 @@ const CANONICAL_MARKET_NAMES = {
   'atacadao ourinhos': 'Atacadão',
   max: 'Max',
   'max atacadista': 'Max',
+  'max atacadista ourinhos': 'Max',
+  'gigante max atacadista': 'Max',
   'sagrada familia': 'Sagrada Família',
   'sao judas': 'São Judas',
   'sao judas tadeu': 'São Judas',
