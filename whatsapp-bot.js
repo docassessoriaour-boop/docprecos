@@ -139,7 +139,6 @@ function normalizePhoneNumber(value) {
   return digits.startsWith('55') ? digits : `55${digits}`;
 }
 
-const ownerWhatsAppNumberNormalized = normalizePhoneNumber(ownerWhatsAppNumber);
 const monitoredPhoneToMarket = new Map(
   monitoredMarkets.flatMap(({ market, phones }) =>
     phones.map(phone => [normalizePhoneNumber(phone), market])
@@ -158,17 +157,11 @@ function getMessageSource(msg) {
   const targetNumber = getBareWhatsAppNumber(msg.to);
   const market =
     monitoredPhoneToMarket.get(senderNumber) ||
-    monitoredPhoneToMarket.get(chatNumber);
+    monitoredPhoneToMarket.get(chatNumber) ||
+    monitoredPhoneToMarket.get(targetNumber);
 
   return {
-    senderNumber,
-    chatNumber,
-    targetNumber,
     market,
-    isOwnerMessage:
-      senderNumber === ownerWhatsAppNumberNormalized ||
-      chatNumber === ownerWhatsAppNumberNormalized ||
-      targetNumber === ownerWhatsAppNumberNormalized,
     isMonitoredMarket: Boolean(market)
   };
 }
@@ -1379,9 +1372,7 @@ async function handleWhatsAppMessage(msg, {
     const messageSource = getMessageSource(msg);
     const shouldProcessMedia =
       forcedMarket ||
-      messageSource.isMonitoredMarket ||
-      (msg.fromMe && includeOwnMessages) ||
-      messageSource.isOwnerMessage;
+      messageSource.isMonitoredMarket;
 
     if (!shouldProcessMedia) {
       console.log(`Mídia ignorada: remetente fora da lista monitorada (${msg.author || msg.from}).`);
