@@ -365,7 +365,17 @@ function parsePrice(value) {
 
 function sanitizeDate(value) {
   const text = String(value || '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : undefined;
+  const match = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return undefined;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const date = new Date(year, month - 1, day);
+
+  return date.getFullYear() === year && date.getMonth() === month - 1 && date.getDate() === day
+    ? text
+    : undefined;
 }
 
 function isQuotaError(error) {
@@ -399,7 +409,7 @@ function normalizeOffer(rawItem, idx, fallbackMarket, sourceLabel) {
     market,
     city: rawItem.city || 'Ourinhos',
     startDate: sanitizeDate(rawItem.startDate),
-    endDate: sanitizeDate(rawItem.endDate) || new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    endDate: sanitizeDate(rawItem.endDate),
     source: sourceLabel
   };
 }
@@ -666,7 +676,8 @@ async function extractOffersFromMedia(media, fallbackMarket, sourceLabel) {
     Analise o arquivo anexado, que pode ser uma imagem ou PDF de encarte, e extraia TODAS as ofertas visíveis.
 
     Se o nome do supermercado estiver visível, retorne esse nome no campo "market". Se não estiver visível, use "${fallbackMarket}".
-    Se houver data de validade, retorne em AAAA-MM-DD. Se houver apenas dia e mês, use o ano atual 2026.
+    Retorne datas somente quando estiverem explicitamente visíveis e legíveis. Nunca estime ou invente uma validade.
+    Se houver data de validade, retorne em AAAA-MM-DD. Se houver apenas dia e mês, use o ano atual ${new Date().getFullYear()}; se a faixa atravessar dezembro/janeiro, o fim pertence ao ano seguinte.
     Se houver mais de um preço para o mesmo item, use o preço principal destacado na oferta.
     Se a marca estiver no nome, mantenha no campo "name". Se não souber a unidade, use "un".
     Nao retorne lista vazia quando houver qualquer produto com preço visível.

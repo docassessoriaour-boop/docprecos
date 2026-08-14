@@ -1,5 +1,6 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { Product } from '../types';
+import { getTodayOfferDate, sanitizeOfferDate } from './offerDates';
 
 const GEMINI_MODEL_FALLBACKS = [
   'gemini-3.5-flash',
@@ -64,11 +65,6 @@ function parsePrice(value: unknown): number {
   return Number.parseFloat(normalized) || 0;
 }
 
-function sanitizeDate(value: unknown): string | undefined {
-  const text = String(value || '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : undefined;
-}
-
 function isActiveOffer(endDate: string | undefined, currentDate: string): boolean {
   if (!endDate) return true;
   return endDate >= currentDate;
@@ -101,8 +97,8 @@ export async function extractOffersWithGemini(
          - "Frios e Laticínios"
          - "Padaria"
          - "Outros"
-      5. Encontre a data de início e a data de validade/fim da promoção no texto (ex: "ofertas válidas de 10/07/2026 a 17/07/2026"). Retorne no formato AAAA-MM-DD. Se encontrar apenas datas parciais, converta usando o ano corrente (2026).
-      6. Se não houver data explícita no texto, estime com base em referências ou deixe em branco.
+      5. Extraia somente datas explicitamente impressas como início e validade/fim. Retorne no formato AAAA-MM-DD. Se houver apenas dia e mês, use o ano atual (${new Date().getFullYear()}); se a faixa atravessar dezembro/janeiro, o fim pertence ao ano seguinte.
+      6. Nunca estime ou invente datas. Se não houver data explícita e legível, deixe os campos em branco.
 
       Responda APENAS com um array JSON válido, sem formatações markdown extras (sem \`\`\`json ou similar), seguindo exatamente esta estrutura:
       interface ProductResult {
@@ -131,8 +127,8 @@ export async function extractOffersWithGemini(
         unit: item.unit || 'un',
         market: marketName,
         city: city,
-        startDate: sanitizeDate(item.startDate),
-        endDate: sanitizeDate(item.endDate)
+        startDate: sanitizeOfferDate(item.startDate),
+        endDate: sanitizeOfferDate(item.endDate)
       }));
     }
     
@@ -190,7 +186,7 @@ export async function extractOffersFromImage(
          - "Frios e Laticínios"
          - "Padaria"
          - "Outros"
-      5. Encontre a data de início e a data de validade/fim da promoção na imagem (ex: "ofertas válidas de 10/07/2026 a 17/07/2026"). Retorne no formato AAAA-MM-DD. Se não houver data, deixe em branco.
+      5. Extraia somente datas explicitamente visíveis de início e validade/fim. Retorne no formato AAAA-MM-DD. Se houver apenas dia e mês, use o ano atual (${new Date().getFullYear()}); se a faixa atravessar dezembro/janeiro, o fim pertence ao ano seguinte. Nunca estime datas; se não estiverem legíveis, deixe em branco.
 
       Responda APENAS com um array JSON válido, sem formatações markdown extras (sem \`\`\`json ou similar), seguindo exatamente esta estrutura:
       interface ProductResult {
@@ -216,8 +212,8 @@ export async function extractOffersFromImage(
         unit: item.unit || 'un',
         market: marketName,
         city: city,
-        startDate: sanitizeDate(item.startDate),
-        endDate: sanitizeDate(item.endDate)
+        startDate: sanitizeOfferDate(item.startDate),
+        endDate: sanitizeOfferDate(item.endDate)
       }));
     }
     
@@ -268,7 +264,7 @@ export async function extractOffersFromPDFFile(
       2. Preço como número decimal puro, exemplo 25.99.
       3. Unidade, exemplo "kg", "5kg", "1L", "un".
       4. Categoria: "Mercearia", "Hortifrúti", "Açougue", "Bebidas", "Limpeza", "Higiene", "Frios e Laticínios", "Padaria" ou "Outros".
-      5. Datas no formato AAAA-MM-DD quando visíveis. Se houver dia/mês sem ano, use 2026.
+      5. Datas no formato AAAA-MM-DD somente quando explicitamente visíveis. Se houver dia/mês sem ano, use o ano atual (${new Date().getFullYear()}); se a faixa atravessar dezembro/janeiro, o fim pertence ao ano seguinte. Nunca estime datas.
 
       Responda APENAS com um array JSON válido:
       [
@@ -294,8 +290,8 @@ export async function extractOffersFromPDFFile(
       unit: item.unit || 'un',
       market: marketName,
       city,
-      startDate: sanitizeDate(item.startDate),
-      endDate: sanitizeDate(item.endDate)
+      startDate: sanitizeOfferDate(item.startDate),
+      endDate: sanitizeOfferDate(item.endDate)
     })).filter(item => item.name !== 'Produto Sem Nome' && item.price > 0 && item.price < 1000);
   } catch (error) {
     console.error('Erro na extração visual de PDF do Gemini:', error);
@@ -312,21 +308,23 @@ export function extractOffersFallback(
   const products: Product[] = [];
   const lines = text.split(/[\n\r]+/);
   
-  let startDate = '2026-07-10';
-  let endDate = '2026-07-20';
+  let startDate: string | undefined;
+  let endDate: string | undefined;
   
   const dateRangeRegex = /(\d{2})\/(\d{2})(?:\/(\d{4}))?\s*(?:a|até|ao|valido|validade)\s*(\d{2})\/(\d{2})(?:\/(\d{4}))?/i;
   const dateMatch = text.match(dateRangeRegex);
   if (dateMatch) {
     const startDay = dateMatch[1];
     const startMonth = dateMatch[2];
-    const startYear = dateMatch[3] || '2026';
+    const currentYear = new Date().getFullYear();
+    const startYear = Number(dateMatch[3] || currentYear);
     const endDay = dateMatch[4];
     const endMonth = dateMatch[5];
-    const endYear = dateMatch[6] || '2026';
+    let endYear = Number(dateMatch[6] || startYear);
+    if (!dateMatch[6] && Number(endMonth) < Number(startMonth)) endYear += 1;
     
-    startDate = `${startYear}-${startMonth}-${startDay}`;
-    endDate = `${endYear}-${endMonth}-${endDay}`;
+    startDate = sanitizeOfferDate(`${startYear}-${startMonth}-${startDay}`);
+    endDate = sanitizeOfferDate(`${endYear}-${endMonth}-${endDay}`);
   }
 
   const categoriesMap: { [key: string]: string } = {
@@ -461,7 +459,7 @@ export async function searchOffersOnline(
   apiKey: string,
   query: string,
   city: string = 'Ourinhos',
-  currentDate: string = new Date().toISOString().split('T')[0]
+  currentDate: string = getTodayOfferDate()
 ): Promise<Product[]> {
   try {
     const cleanedQuery = query.trim();
@@ -497,7 +495,7 @@ export async function searchOffersOnline(
          - "Frios e Laticínios"
          - "Padaria"
          - "Outros"
-      6. Extraia a data de início e a data de validade/fim da promoção (campo "endDate"). A validade DEVE ser igual ou maior que ${currentDate} para ser considerada ativa. Se o site ou panfleto não especificar o ano, use 2026. Se não houver validade explícita, deixe endDate em branco.
+      6. Extraia a data de início e a validade/fim somente quando estiverem explícitas na fonte. A validade DEVE ser igual ou maior que ${currentDate}. Se não houver ano, use ${new Date().getFullYear()}, considerando o ano seguinte quando uma faixa atravessar dezembro/janeiro. Nunca estime datas; sem validade explícita, deixe endDate em branco.
       7. A cidade deve ser "${city}".
       8. Quando o usuário informar itens prioritários, retorne primeiro ofertas que correspondam a esses itens. Aceite variações próximas, como "leite" para "leite integral 1L".
       9. Descarte preços improváveis ou textos que não sejam produtos de supermercado.
@@ -527,7 +525,7 @@ export async function searchOffersOnline(
       return parsed
         .map((item: any, idx: number) => {
           const price = parsePrice(item.price);
-          const endDate = sanitizeDate(item.endDate);
+          const endDate = sanitizeOfferDate(item.endDate);
           return {
             id: `${(item.market || 'online').toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000000)}`,
             name: String(item.name || '').trim() || 'Produto Sem Nome',
@@ -536,7 +534,7 @@ export async function searchOffersOnline(
             unit: item.unit || 'un',
             market: String(item.market || '').trim() || 'Supermercado Online',
             city: city,
-            startDate: sanitizeDate(item.startDate),
+            startDate: sanitizeOfferDate(item.startDate),
             endDate
           };
         })

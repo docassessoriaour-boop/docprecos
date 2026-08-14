@@ -22,6 +22,7 @@ import {
 import type { Product, ShoppingItem, MarketComparison, OptimizedItem } from './types';
 import { extractTextFromPDF } from './utils/pdfParser';
 import { extractOffersWithGemini, extractOffersFallback, generateDemoOffers, fetchHtmlFromUrl, extractOffersFromImage, extractOffersFromPDFFile, searchOffersOnline, parseInformalShoppingList } from './utils/geminiExtractor';
+import { getTodayDateOnly, getTodayOfferDate, isOfferExpired, normalizeOfferDateRange, parseOfferDate } from './utils/offerDates';
 import defaultProductsData from './data/defaultProducts.json';
 import './App.css';
 
@@ -51,58 +52,6 @@ const INITIAL_PRODUCTS: Product[] = [
 const LEGACY_DEMO_PRODUCT_IDS = new Set(INITIAL_PRODUCTS.map(product => product.id));
 
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
-
-const getTodayDateOnly = () => {
-  const today = new Date();
-  return new Date(today.getFullYear(), today.getMonth(), today.getDate());
-};
-
-const parseDateOnly = (value?: string) => {
-  if (!value) return null;
-  const [year, month, day] = value.split('-').map(Number);
-  if (!year || !month || !day) return null;
-  return new Date(year, month - 1, day);
-};
-
-const isDateExpired = (value?: string) => {
-  const endDate = parseDateOnly(value);
-  return endDate ? endDate < getTodayDateOnly() : false;
-};
-
-const formatDateOnly = (date: Date) => {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
-};
-
-const getProductImportYear = (product: Product) => {
-  const timestampMatch = product.id.match(/-(\d{13})-/);
-  if (!timestampMatch) return null;
-
-  const timestampDate = new Date(Number(timestampMatch[1]));
-  const year = timestampDate.getFullYear();
-  return Number.isFinite(year) ? year : null;
-};
-
-const normalizeOfferDateYear = (value: string | undefined, product: Product) => {
-  const date = parseDateOnly(value);
-  if (!date) return value;
-
-  const importYear = getProductImportYear(product);
-  if (!importYear || date.getFullYear() >= importYear) return value;
-
-  return formatDateOnly(new Date(importYear, date.getMonth(), date.getDate()));
-};
-
-const normalizeProductOfferDates = (product: Product): Product => ({
-  ...product,
-  startDate: normalizeOfferDateYear(product.startDate, product),
-  endDate: normalizeOfferDateYear(product.endDate, product)
-});
-
-const normalizeProductsOfferDates = (products: Product[]) =>
-  products.map(normalizeProductOfferDates);
 
 const normalizeDuplicateKeyText = (value: string) =>
   value
@@ -233,7 +182,7 @@ const removeDuplicateProducts = (products: Product[]) => {
 
 const removeExpiredProducts = (products: Product[]) =>
   removeDuplicateProducts(
-    normalizeProductsOfferDates(products).filter(product => !isDateExpired(product.endDate))
+    products.map(normalizeOfferDateRange).filter(product => !isOfferExpired(product.endDate))
   );
 
 const DEFAULT_PRODUCTS = removeExpiredProducts(defaultProductsData as Product[]);
@@ -291,7 +240,7 @@ const normalizeSearchText = (value: string) => {
 };
 
 const getDaysUntilDate = (value?: string) => {
-  const endDate = parseDateOnly(value);
+  const endDate = parseOfferDate(value);
   if (!endDate) return null;
   return Math.round((endDate.getTime() - getTodayDateOnly().getTime()) / MS_PER_DAY);
 };
@@ -1432,8 +1381,8 @@ export default function App() {
 
         incomingOffers.forEach(offer => {
           if (importedWhatsAppIds.current.has(offer.id)) return;
-          const normalizedOffer = normalizeProductOfferDates(offer);
-          if (isDateExpired(normalizedOffer.endDate)) return;
+          const normalizedOffer = normalizeOfferDateRange(offer);
+          if (isOfferExpired(normalizedOffer.endDate)) return;
 
           const key = getProductDuplicateKey(normalizedOffer);
           importedWhatsAppIds.current.add(offer.id);
@@ -1603,7 +1552,7 @@ export default function App() {
   const getValidityStatus = (endDateStr?: string) => {
     if (!endDateStr) return { label: 'Validade não informada', type: 'info' };
 
-    if (isDateExpired(endDateStr)) {
+    if (isOfferExpired(endDateStr)) {
       return { label: 'Oferta Expirada', type: 'expired' };
     }
 
@@ -1831,7 +1780,7 @@ export default function App() {
     setUploadStatus(`Pesquisando preços online em ${cityInput}${effectiveQuery ? ` para: ${effectiveQuery}` : ''}...`);
     
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const todayStr = getTodayOfferDate();
       const extractedProducts = removeExpiredProducts(await searchOffersOnline(apiKey, effectiveQuery, cityInput, todayStr));
       
       if (extractedProducts.length > 0) {
@@ -2631,7 +2580,7 @@ export default function App() {
 
     return products
       .filter(product => city === 'Todas' || product.city === city)
-      .filter(product => !isDateExpired(product.endDate))
+      .filter(product => !isOfferExpired(product.endDate))
       .map(product => ({ product, score: getSavedListItemOfferScore(itemName, product) }))
       .filter(({ product, score }) => {
         const offerKey = getProductDuplicateKey(product);
@@ -2654,7 +2603,7 @@ export default function App() {
   ) => {
     const consolidatedItems = consolidateShoppingItems(itemsToCompare);
     const cityProducts = products.filter(product => city === 'Todas' || product.city === city);
-    const activeCityProducts = cityProducts.filter(product => !isDateExpired(product.endDate));
+    const activeCityProducts = cityProducts.filter(product => !isOfferExpired(product.endDate));
     const marketsForCity = Array.from(new Set(cityProducts.map(product => product.market)));
 
     // Calcula a compatibilidade de cada item com cada produto apenas uma vez.
