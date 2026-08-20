@@ -1978,7 +1978,9 @@ export default function App() {
             table { width: 100%; border-collapse: collapse; margin-bottom: 12px; break-inside: auto; page-break-inside: auto; }
             thead { display: table-header-group; }
             tfoot { display: table-footer-group; }
-            tr { break-inside: avoid; page-break-inside: avoid; }
+            /* Let Chromium paginate table rows natively. Forcing every row to stay
+               together makes "Save as PDF" recalculate the whole table repeatedly. */
+            tr { break-inside: auto; page-break-inside: auto; }
             th, td { border: 1px solid #d1d5db; padding: 6px 7px; font-size: 10px; text-align: left; }
             th { background: #f3f4f6; font-weight: 700; }
             td.money, th.money { text-align: right; white-space: nowrap; }
@@ -1992,7 +1994,12 @@ export default function App() {
             ${subtitle ? `<br>${subtitle}` : ''}
           </div>
           ${bodyHtml}
-          <script>window.onload = () => window.print();</script>
+          <script>
+            window.onload = () => {
+              requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
+            };
+            window.onafterprint = () => window.close();
+          </script>
         </body>
       </html>
     `);
@@ -2943,7 +2950,7 @@ export default function App() {
             table { width: 100%; border-collapse: collapse; margin-bottom: 12px; break-inside: auto; page-break-inside: auto; }
             thead { display: table-header-group; }
             tfoot { display: table-footer-group; }
-            tr { break-inside: avoid; page-break-inside: avoid; }
+            tr { break-inside: auto; page-break-inside: auto; }
             th, td { border: 1px solid #d1d5db; padding: 6px 7px; font-size: 10px; text-align: left; }
             th { background: #f3f4f6; font-weight: 700; }
             td:nth-child(4), th:nth-child(4) { text-align: right; white-space: nowrap; }
@@ -2958,8 +2965,9 @@ export default function App() {
           ${rowsHtml}
           <script>
             window.onload = () => {
-              window.print();
+              requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
             };
+            window.onafterprint = () => window.close();
           </script>
         </body>
       </html>
@@ -3048,7 +3056,7 @@ export default function App() {
             }
             table { width: 100%; border-collapse: collapse; margin-bottom: 12px; break-inside: auto; page-break-inside: auto; }
             thead { display: table-header-group; }
-            tr { break-inside: avoid; page-break-inside: avoid; }
+            tr { break-inside: auto; page-break-inside: auto; }
             th, td { border: 1px solid #9ca3af; padding: 6px 7px; font-size: 10px; text-align: left; vertical-align: top; }
             th { background: #f3f4f6; font-weight: 700; }
             td:nth-child(2), th:nth-child(2) { text-align: center; white-space: nowrap; }
@@ -3065,8 +3073,9 @@ export default function App() {
           ${rowsHtml}
           <script>
             window.onload = () => {
-              window.print();
+              requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
             };
+            window.onafterprint = () => window.close();
           </script>
         </body>
       </html>
@@ -3199,7 +3208,7 @@ export default function App() {
             .meta { font-size: 11px; color: #4b5563; margin-bottom: 16px; }
             table { width: 100%; border-collapse: collapse; margin-bottom: 12px; break-inside: auto; page-break-inside: auto; }
             thead { display: table-header-group; }
-            tr { break-inside: avoid; page-break-inside: avoid; }
+            tr { break-inside: auto; page-break-inside: auto; }
             th, td { border: 1px solid #d1d5db; padding: 6px 7px; font-size: 10px; text-align: left; vertical-align: top; }
             th { background: #f3f4f6; font-weight: 700; }
             td:nth-child(3), th:nth-child(3) { white-space: nowrap; }
@@ -3224,8 +3233,9 @@ export default function App() {
           ${summaryHtml}
           <script>
             window.onload = () => {
-              window.print();
+              requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
             };
+            window.onafterprint = () => window.close();
           </script>
         </body>
       </html>
