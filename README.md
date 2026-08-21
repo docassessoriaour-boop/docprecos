@@ -1,5 +1,14 @@
 # React + TypeScript + Vite
 
+## Acesso com Supabase
+
+1. Crie um projeto no Supabase e habilite o provedor **Email** em Authentication.
+2. Copie `.env.example` para `.env`.
+3. Preencha `VITE_SUPABASE_URL` e `VITE_SUPABASE_ANON_KEY` com os valores de Project Settings > API.
+4. No Vercel, cadastre as mesmas variáveis em Project Settings > Environment Variables.
+
+O aplicativo oferece cadastro, login persistente e encerramento de sessão. Se a confirmação de e-mail estiver habilitada no Supabase, o usuário precisará confirmar o cadastro antes do primeiro acesso.
+
 This template provides a minimal setup to get React working in Vite with HMR and some Oxlint rules.
 
 Currently, two official plugins are available:

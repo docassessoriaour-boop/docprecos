@@ -18,7 +18,8 @@ import {
   Globe,
   Link as LinkIcon,
   Image as ImageIcon,
-  Pencil
+  Pencil,
+  LogOut
 } from 'lucide-react';
 import type { Product, ShoppingItem, MarketComparison, OptimizedItem } from './types';
 import { extractTextFromPDF } from './utils/pdfParser';
@@ -1282,7 +1283,12 @@ const getProductGroup = (productName: string, unit = '') => {
 
 const CATALOG_PAGE_SIZE = 60;
 
-export default function App() {
+type AppProps = {
+  userEmail: string;
+  onSignOut: () => void | Promise<unknown>;
+};
+
+export default function App({ userEmail, onSignOut }: AppProps) {
   const [products, setProducts] = useState<Product[]>(loadSavedProducts);
   
   const [apiKey, setApiKey] = useState<string>(() => {
@@ -3287,6 +3293,12 @@ export default function App() {
           >
             <Info size={16} className="text-secondary-color" />
           </a>
+          <div className="user-access">
+            <span title={userEmail}>{userEmail}</span>
+            <button type="button" className="btn-icon" title="Sair da conta" onClick={() => void onSignOut()}>
+              <LogOut size={17} />
+            </button>
+          </div>
         </div>
       </header>
 
