@@ -15,6 +15,7 @@ dist-ssr
 .processed-offer-files.json
 .wwebjs_auth*
 .wwebjs_cache*
+outputs/whatsapp-bot.pid
 .agents
 .codex
 ENTRADA_OFERTAS/*

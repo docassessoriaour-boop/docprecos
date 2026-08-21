@@ -33,6 +33,45 @@ dotenv.config();
 
 const botLogFile = path.resolve(process.env.WHATSAPP_BOT_LOG || 'outputs/whatsapp-bot.log');
 const botLogMaxBytes = 5 * 1024 * 1024;
+const instanceLockFile = path.resolve('outputs/whatsapp-bot.pid');
+
+function isProcessRunning(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error?.code === 'EPERM';
+  }
+}
+
+function acquireInstanceLock() {
+  fs.mkdirSync(path.dirname(instanceLockFile), { recursive: true });
+
+  try {
+    const existingPid = Number.parseInt(fs.readFileSync(instanceLockFile, 'utf8').trim(), 10);
+    if (existingPid !== process.pid && isProcessRunning(existingPid)) {
+      console.error(`O coletor do WhatsApp ja esta rodando (processo ${existingPid}).`);
+      console.error('Use apenas uma janela do coletor. Esta segunda inicializacao sera encerrada.');
+      process.exit(0);
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+
+  fs.writeFileSync(instanceLockFile, `${process.pid}\n`, 'utf8');
+}
+
+function releaseInstanceLock() {
+  try {
+    const lockPid = Number.parseInt(fs.readFileSync(instanceLockFile, 'utf8').trim(), 10);
+    if (lockPid === process.pid) fs.unlinkSync(instanceLockFile);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') console.error('Nao foi possivel remover a trava do coletor:', error);
+  }
+}
+
+acquireInstanceLock();
 
 function formatLogValue(value) {
   if (typeof value === 'string') return value;
@@ -132,6 +171,7 @@ let initializeRetryCount = 0;
 let isWhatsAppReady = false;
 let apiServer;
 let isStartingApiServer = false;
+let isShuttingDown = false;
 
 function normalizePhoneNumber(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -1233,10 +1273,17 @@ function isTransientWhatsAppError(error) {
 }
 
 function scheduleWhatsAppRestart(reason, delayMs = 8000) {
-  if (isRestartingWhatsAppClient) return;
-  isRestartingWhatsAppClient = true;
+  if (isRestartingWhatsAppClient || isShuttingDown) return;
 
   const reasonText = reason?.message || reason || 'instabilidade do WhatsApp Web';
+  if (String(reasonText).toLowerCase().includes('browser is already running')) {
+    console.error('Outro coletor esta usando esta sessao do WhatsApp. Feche a outra janela antes de iniciar novamente.');
+    shutdownBot(0);
+    return;
+  }
+
+  isRestartingWhatsAppClient = true;
+
   console.log(`🔁 WhatsApp Web recarregou ou falhou: ${reasonText}`);
   console.log(`Vou tentar iniciar o coletor novamente em ${Math.round(delayMs / 1000)} segundos.`);
 
@@ -1315,6 +1362,7 @@ function attachWhatsAppHandlers(nextClient) {
 }
 
 async function initializeWhatsAppClient() {
+  if (isShuttingDown) return;
   isWhatsAppReady = false;
   console.log('🔄 Inicializando cliente do WhatsApp...');
   if (whatsappWebVersion) {
@@ -1483,5 +1531,31 @@ process.on('uncaughtException', (error) => {
 
   console.error('Erro inesperado no coletor:', error);
 });
+
+async function shutdownBot(exitCode = 0) {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+  isWhatsAppReady = false;
+  console.log('\nEncerrando o coletor do WhatsApp com seguranca...');
+
+  try {
+    await client?.destroy();
+  } catch {
+    // O navegador pode ja ter sido encerrado pelo sistema.
+  }
+
+  try {
+    apiServer?.close();
+  } catch {
+    // O servidor local pode ainda nao ter sido iniciado.
+  }
+
+  releaseInstanceLock();
+  process.exit(exitCode);
+}
+
+process.once('SIGINT', () => shutdownBot(0));
+process.once('SIGTERM', () => shutdownBot(0));
+process.once('exit', releaseInstanceLock);
 
 initializeWhatsAppClient();
