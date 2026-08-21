@@ -19,7 +19,8 @@ import {
   Link as LinkIcon,
   Image as ImageIcon,
   Pencil,
-  LogOut
+  LogOut,
+  UserPlus
 } from 'lucide-react';
 import type { Product, ShoppingItem, MarketComparison, OptimizedItem } from './types';
 import { extractTextFromPDF } from './utils/pdfParser';
@@ -1285,10 +1286,12 @@ const CATALOG_PAGE_SIZE = 60;
 
 type AppProps = {
   userEmail: string;
+  isAdmin: boolean;
+  onOpenUserAdmin: () => void;
   onSignOut: () => void | Promise<unknown>;
 };
 
-export default function App({ userEmail, onSignOut }: AppProps) {
+export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: AppProps) {
   const [products, setProducts] = useState<Product[]>(loadSavedProducts);
   
   const [apiKey, setApiKey] = useState<string>(() => {
@@ -3295,6 +3298,11 @@ export default function App({ userEmail, onSignOut }: AppProps) {
           </a>
           <div className="user-access">
             <span title={userEmail}>{userEmail}</span>
+            {isAdmin && (
+              <button type="button" className="btn-icon" title="Criar usuário interno" onClick={onOpenUserAdmin}>
+                <UserPlus size={17} />
+              </button>
+            )}
             <button type="button" className="btn-icon" title="Sair da conta" onClick={() => void onSignOut()}>
               <LogOut size={17} />
             </button>

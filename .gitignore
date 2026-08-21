@@ -33,3 +33,5 @@ outputs/lista-vovo-nena-work/
 *.njsproj
 *.sln
 *.sw?
+.vercel
+.env*

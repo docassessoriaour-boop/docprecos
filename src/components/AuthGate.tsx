@@ -1,10 +1,9 @@
 import { useEffect, useState, type FormEvent } from 'react';
 import type { Session } from '@supabase/supabase-js';
-import { LockKeyhole, LogIn, UserPlus } from 'lucide-react';
+import { LockKeyhole, LogIn } from 'lucide-react';
 import App from '../App';
+import InternalUserAdmin from './InternalUserAdmin';
 import { isSupabaseConfigured, supabase } from '../lib/supabase';
-
-type AuthMode = 'login' | 'signup';
 
 const translateAuthError = (message: string) => {
   const normalized = message.toLowerCase();
@@ -18,7 +17,7 @@ const translateAuthError = (message: string) => {
 export default function AuthGate() {
   const [session, setSession] = useState<Session | null>(null);
   const [checkingSession, setCheckingSession] = useState(true);
-  const [mode, setMode] = useState<AuthMode>('login');
+  const [showUserAdmin, setShowUserAdmin] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
@@ -52,9 +51,7 @@ export default function AuthGate() {
     setMessage(null);
     setIsError(false);
 
-    const result = mode === 'login'
-      ? await supabase.auth.signInWithPassword({ email: email.trim(), password })
-      : await supabase.auth.signUp({ email: email.trim(), password });
+    const result = await supabase.auth.signInWithPassword({ email: email.trim(), password });
 
     setLoading(false);
     if (result.error) {
@@ -63,9 +60,6 @@ export default function AuthGate() {
       return;
     }
 
-    if (mode === 'signup' && !result.data.session) {
-      setMessage('Cadastro realizado. Verifique seu e-mail para confirmar a conta.');
-    }
   };
 
   if (checkingSession) {
@@ -85,7 +79,19 @@ export default function AuthGate() {
   }
 
   if (session) {
-    return <App userEmail={session.user.email ?? 'Usuário'} onSignOut={() => supabase!.auth.signOut()} />;
+    const userEmail = session.user.email ?? 'Usuário';
+    const adminEmails = (import.meta.env.VITE_ADMIN_EMAILS || '')
+      .split(',')
+      .map((value: string) => value.trim().toLowerCase())
+      .filter(Boolean);
+    const isAdmin = adminEmails.includes(userEmail.toLowerCase());
+
+    return (
+      <>
+        <App userEmail={userEmail} isAdmin={isAdmin} onOpenUserAdmin={() => setShowUserAdmin(true)} onSignOut={() => supabase!.auth.signOut()} />
+        {isAdmin && showUserAdmin && <InternalUserAdmin onClose={() => setShowUserAdmin(false)} />}
+      </>
+    );
   }
 
   return (
@@ -93,26 +99,20 @@ export default function AuthGate() {
       <main className="auth-card glass-panel">
         <div className="auth-logo"><LockKeyhole size={30} /></div>
         <p className="auth-eyebrow">Radar de Preços</p>
-        <h1>{mode === 'login' ? 'Acesse sua conta' : 'Crie seu acesso'}</h1>
-        <p className="auth-description">
-          {mode === 'login' ? 'Entre com seu e-mail e senha para continuar.' : 'Cadastre um e-mail e uma senha segura.'}
-        </p>
+        <h1>Acesse sua conta</h1>
+        <p className="auth-description">Acesso restrito a usuários internos autorizados.</p>
 
         <form className="auth-form" onSubmit={handleSubmit}>
           <label htmlFor="auth-email">E-mail</label>
           <input id="auth-email" className="input-glow" type="email" autoComplete="email" value={email} onChange={(event) => setEmail(event.target.value)} required />
           <label htmlFor="auth-password">Senha</label>
-          <input id="auth-password" className="input-glow" type="password" autoComplete={mode === 'login' ? 'current-password' : 'new-password'} minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <input id="auth-password" className="input-glow" type="password" autoComplete="current-password" minLength={6} value={password} onChange={(event) => setPassword(event.target.value)} required />
           {message && <div className={`auth-message ${isError ? 'error' : 'success'}`} role="status">{message}</div>}
           <button className="btn-primary auth-submit" type="submit" disabled={loading}>
-            {mode === 'login' ? <LogIn size={18} /> : <UserPlus size={18} />}
-            {loading ? 'Aguarde...' : mode === 'login' ? 'Entrar' : 'Cadastrar'}
+            <LogIn size={18} />
+            {loading ? 'Aguarde...' : 'Entrar'}
           </button>
         </form>
-
-        <button className="auth-switch" type="button" onClick={() => { setMode(mode === 'login' ? 'signup' : 'login'); setMessage(null); }}>
-          {mode === 'login' ? 'Ainda não tem acesso? Cadastre-se' : 'Já possui cadastro? Entrar'}
-        </button>
       </main>
     </div>
   );
