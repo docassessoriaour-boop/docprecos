@@ -1,0 +1,11 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Iniciar Bot do WhatsApp
+Comment=Inicia o coletor do WhatsApp do Radar de Preços
+Icon=utilities-terminal
+Terminal=false
+Exec=gnome-terminal --title="Bot WhatsApp - Radar de Preços" -- "/home/koda_branca/Documentos/APP PREÇOS/iniciar-bot-whatsapp.sh"
+Path=/home/koda_branca/Documentos/APP PREÇOS
+Categories=Utility;
+StartupNotify=true

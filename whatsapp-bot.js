@@ -39,9 +39,10 @@ function isProcessRunning(pid) {
   if (!Number.isInteger(pid) || pid <= 0) return false;
   try {
     process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
+    const commandLine = fs.readFileSync(`/proc/${pid}/cmdline`, 'utf8').split('\0').join(' ');
+    return commandLine.includes('node') && commandLine.includes('whatsapp-bot.js');
+  } catch {
+    return false;
   }
 }
 
@@ -123,6 +124,7 @@ const shouldResetSession = process.argv.includes('--reset-session');
 const whatsappWebVersion = process.env.WWEB_VERSION || '';
 const enableDirectMediaDownload = process.env.WWEB_DIRECT_MEDIA !== 'false';
 const authClientId = shouldResetSession ? `radar-precos-${Date.now()}` : 'radar-precos';
+const authSessionFolder = path.resolve('.wwebjs_auth', `session-${authClientId}`);
 const offersInboxFolder = path.resolve(process.env.OFFERS_INBOX || 'ENTRADA_OFERTAS');
 const processedFilesPath = path.resolve('.processed-offer-files.json');
 const receivedWhatsAppFolder = path.join(offersInboxFolder, 'WhatsApp');
@@ -1272,6 +1274,40 @@ function isTransientWhatsAppError(error) {
   );
 }
 
+async function cleanupOrphanedBrowserSession() {
+  const singletonLock = path.join(authSessionFolder, 'SingletonLock');
+  let browserPid;
+
+  try {
+    const lockTarget = fs.readlinkSync(singletonLock);
+    browserPid = Number.parseInt(lockTarget.match(/(\d+)$/)?.[1] || '', 10);
+    if (!Number.isInteger(browserPid) || browserPid <= 0) return;
+
+    const status = fs.readFileSync(`/proc/${browserPid}/status`, 'utf8');
+    const commandLine = fs.readFileSync(`/proc/${browserPid}/cmdline`, 'utf8').split('\0').join(' ');
+    const parentPid = Number.parseInt(status.match(/^PPid:\s+(\d+)/m)?.[1] || '', 10);
+    const belongsToThisSession = commandLine.includes(`--user-data-dir=${authSessionFolder}`);
+
+    if (parentPid !== 1 || !belongsToThisSession) return;
+
+    console.log(`Recuperando navegador antigo do WhatsApp que ficou aberto (processo ${browserPid})...`);
+    process.kill(browserPid, 'SIGTERM');
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await new Promise(resolve => setTimeout(resolve, 250));
+      try {
+        process.kill(browserPid, 0);
+      } catch {
+        return;
+      }
+    }
+  } catch (error) {
+    if (!['ENOENT', 'ESRCH', 'EINVAL'].includes(error?.code)) {
+      console.log(`Nao foi possivel verificar o navegador anterior: ${error?.message || error}`);
+    }
+  }
+}
+
 function scheduleWhatsAppRestart(reason, delayMs = 8000) {
   if (isRestartingWhatsAppClient || isShuttingDown) return;
 
@@ -1371,6 +1407,8 @@ async function initializeWhatsAppClient() {
   if (initializeRetryCount > 0) {
     console.log(`Tentativa automatica de reconexao: ${initializeRetryCount + 1}.`);
   }
+
+  await cleanupOrphanedBrowserSession();
 
   const nextClient = new Client(buildClientOptions());
   client = nextClient;
