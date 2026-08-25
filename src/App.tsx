@@ -244,8 +244,35 @@ const removeExpiredProducts = (products: Product[]) =>
 
 const DEFAULT_PRODUCTS = removeExpiredProducts(defaultProductsData as Product[]);
 
+const PRODUCTS_STORAGE_KEY = 'products_list';
+const PRODUCTS_STORAGE_VERSION_KEY = 'products_list_catalog_version';
+
+// The published catalog is the common baseline for every browser. A fingerprint
+// makes old browser-local copies expire automatically whenever the bundled
+// catalog changes in a new deployment.
+const getCatalogVersion = (catalog: Product[]) => {
+  const serializedCatalog = JSON.stringify(catalog);
+  let hash = 2166136261;
+
+  for (let index = 0; index < serializedCatalog.length; index += 1) {
+    hash ^= serializedCatalog.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+
+  return `catalog-${catalog.length}-${(hash >>> 0).toString(16)}`;
+};
+
+const PRODUCTS_STORAGE_VERSION = getCatalogVersion(defaultProductsData as Product[]);
+
 const loadSavedProducts = () => {
-  const saved = localStorage.getItem('products_list');
+  const savedVersion = localStorage.getItem(PRODUCTS_STORAGE_VERSION_KEY);
+  if (savedVersion !== PRODUCTS_STORAGE_VERSION) {
+    localStorage.removeItem(PRODUCTS_STORAGE_KEY);
+    localStorage.setItem(PRODUCTS_STORAGE_VERSION_KEY, PRODUCTS_STORAGE_VERSION);
+    return DEFAULT_PRODUCTS;
+  }
+
+  const saved = localStorage.getItem(PRODUCTS_STORAGE_KEY);
   if (!saved) return DEFAULT_PRODUCTS;
 
   try {
@@ -257,13 +284,13 @@ const loadSavedProducts = () => {
       savedProducts.every(product => LEGACY_DEMO_PRODUCT_IDS.has(product.id));
 
     if (containsOnlyLegacyDemo) {
-      localStorage.removeItem('products_list');
+      localStorage.removeItem(PRODUCTS_STORAGE_KEY);
       return DEFAULT_PRODUCTS;
     }
 
     return removeExpiredProducts(savedProducts);
   } catch {
-    localStorage.removeItem('products_list');
+    localStorage.removeItem(PRODUCTS_STORAGE_KEY);
     return DEFAULT_PRODUCTS;
   }
 };
@@ -1399,7 +1426,8 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
       return;
     }
 
-    localStorage.setItem('products_list', JSON.stringify(activeProducts));
+    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(activeProducts));
+    localStorage.setItem(PRODUCTS_STORAGE_VERSION_KEY, PRODUCTS_STORAGE_VERSION);
   }, [products]);
 
   useEffect(() => {
