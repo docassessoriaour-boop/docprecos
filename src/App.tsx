@@ -246,6 +246,7 @@ const DEFAULT_PRODUCTS = removeExpiredProducts(defaultProductsData as Product[])
 
 const PRODUCTS_STORAGE_KEY = 'products_list';
 const PRODUCTS_STORAGE_VERSION_KEY = 'products_list_catalog_version';
+const PRODUCTS_STORAGE_BACKUP_KEY = 'products_list_previous_catalog_backup';
 
 // The published catalog is the common baseline for every browser. A fingerprint
 // makes old browser-local copies expire automatically whenever the bundled
@@ -267,7 +268,11 @@ const PRODUCTS_STORAGE_VERSION = getCatalogVersion(defaultProductsData as Produc
 const loadSavedProducts = () => {
   const savedVersion = localStorage.getItem(PRODUCTS_STORAGE_VERSION_KEY);
   if (savedVersion !== PRODUCTS_STORAGE_VERSION) {
-    localStorage.removeItem(PRODUCTS_STORAGE_KEY);
+    const previousCatalog = localStorage.getItem(PRODUCTS_STORAGE_KEY);
+    if (previousCatalog && previousCatalog !== '[]') {
+      localStorage.setItem(PRODUCTS_STORAGE_BACKUP_KEY, previousCatalog);
+    }
+
     localStorage.setItem(PRODUCTS_STORAGE_VERSION_KEY, PRODUCTS_STORAGE_VERSION);
     return DEFAULT_PRODUCTS;
   }
