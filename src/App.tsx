@@ -30,31 +30,6 @@ import { normalizeMarketName } from './utils/marketNames';
 import defaultProductsData from './data/defaultProducts.json';
 import './App.css';
 
-// Initial Mock Data configured for Ourinhos
-const INITIAL_PRODUCTS: Product[] = [
-  // Supermercado Bom Preço (Ourinhos)
-  { id: '1', name: 'Arroz Tio João Tipo 1 5kg', price: 24.90, category: 'Mercearia', unit: '5kg', market: 'Bom Preço', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  { id: '2', name: 'Feijão Carioca Camil 1kg', price: 6.89, category: 'Mercearia', unit: '1kg', market: 'Bom Preço', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  { id: '3', name: 'Leite Integral Piracanjuba 1L', price: 4.89, category: 'Frios e Laticínios', unit: '1L', market: 'Bom Preço', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-15' }, // Expired
-  { id: '4', name: 'Alcatra Bovina kg', price: 39.90, category: 'Açougue', unit: 'kg', market: 'Bom Preço', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  { id: '5', name: 'Cerveja Heineken Lata 350ml', price: 4.99, category: 'Bebidas', unit: '350ml', market: 'Bom Preço', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  { id: '6', name: 'Detergente Ipê Neutro 500ml', price: 2.19, category: 'Limpeza', unit: '500ml', market: 'Bom Preço', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  
-  // Supermercado Extra Baratão (Ourinhos)
-  { id: '8', name: 'Arroz Tio João Tipo 1 5kg', price: 23.50, category: 'Mercearia', unit: '5kg', market: 'Extra Baratão', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  { id: '9', name: 'Feijão Carioca Camil 1kg', price: 7.20, category: 'Mercearia', unit: '1kg', market: 'Extra Baratão', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  { id: '10', name: 'Leite Integral Piracanjuba 1L', price: 4.49, category: 'Frios e Laticínios', unit: '1L', market: 'Extra Baratão', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  { id: '11', name: 'Alcatra Bovina kg', price: 42.50, category: 'Açougue', unit: 'kg', market: 'Extra Baratão', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  
-  // Supermercado Compre Bem (Ourinhos)
-  { id: '15', name: 'Arroz Tio João Tipo 1 5kg', price: 25.90, category: 'Mercearia', unit: '5kg', market: 'Compre Bem', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  { id: '16', name: 'Feijão Carioca Camil 1kg', price: 6.30, category: 'Mercearia', unit: '1kg', market: 'Compre Bem', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-  { id: '18', name: 'Alcatra Bovina kg', price: 37.90, category: 'Açougue', unit: 'kg', market: 'Compre Bem', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-17' }, // Expiring soon (ends tomorrow 17)
-  { id: '20', name: 'Detergente Ipê Neutro 500ml', price: 1.99, category: 'Limpeza', unit: '500ml', market: 'Compre Bem', city: 'Ourinhos', startDate: '2026-07-10', endDate: '2026-07-24' },
-];
-
-const LEGACY_DEMO_PRODUCT_IDS = new Set(INITIAL_PRODUCTS.map(product => product.id));
-
 const MS_PER_DAY = 1000 * 60 * 60 * 24;
 
 const normalizeDuplicateKeyText = (value: string) =>
@@ -266,38 +241,16 @@ const getCatalogVersion = (catalog: Product[]) => {
 const PRODUCTS_STORAGE_VERSION = getCatalogVersion(defaultProductsData as Product[]);
 
 const loadSavedProducts = () => {
-  const savedVersion = localStorage.getItem(PRODUCTS_STORAGE_VERSION_KEY);
-  if (savedVersion !== PRODUCTS_STORAGE_VERSION) {
-    const previousCatalog = localStorage.getItem(PRODUCTS_STORAGE_KEY);
-    if (previousCatalog && previousCatalog !== '[]') {
-      localStorage.setItem(PRODUCTS_STORAGE_BACKUP_KEY, previousCatalog);
-    }
-
-    localStorage.setItem(PRODUCTS_STORAGE_VERSION_KEY, PRODUCTS_STORAGE_VERSION);
-    return DEFAULT_PRODUCTS;
+  const previousCatalog = localStorage.getItem(PRODUCTS_STORAGE_KEY);
+  if (previousCatalog && previousCatalog !== '[]') {
+    localStorage.setItem(PRODUCTS_STORAGE_BACKUP_KEY, previousCatalog);
   }
 
-  const saved = localStorage.getItem(PRODUCTS_STORAGE_KEY);
-  if (!saved) return DEFAULT_PRODUCTS;
-
-  try {
-    const savedProducts = JSON.parse(saved) as Product[];
-    if (savedProducts.length === 0) return DEFAULT_PRODUCTS;
-
-    const containsOnlyLegacyDemo =
-      savedProducts.length > 0 &&
-      savedProducts.every(product => LEGACY_DEMO_PRODUCT_IDS.has(product.id));
-
-    if (containsOnlyLegacyDemo) {
-      localStorage.removeItem(PRODUCTS_STORAGE_KEY);
-      return DEFAULT_PRODUCTS;
-    }
-
-    return removeExpiredProducts(savedProducts);
-  } catch {
-    localStorage.removeItem(PRODUCTS_STORAGE_KEY);
-    return DEFAULT_PRODUCTS;
-  }
+  // The deployed catalog is the single source of truth. Browser-local copies
+  // caused different browsers to show different totals indefinitely.
+  localStorage.removeItem(PRODUCTS_STORAGE_KEY);
+  localStorage.setItem(PRODUCTS_STORAGE_VERSION_KEY, PRODUCTS_STORAGE_VERSION);
+  return DEFAULT_PRODUCTS;
 };
 
 const SEARCH_STOP_WORDS = new Set([
@@ -1423,7 +1376,8 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
     }
   });
 
-  // Save data to localStorage
+  // Expired products are removed in memory. The catalog is deliberately not
+  // persisted per browser; every reload returns to the deployed source.
   useEffect(() => {
     const activeProducts = removeExpiredProducts(products);
     if (activeProducts.length !== products.length) {
@@ -1431,8 +1385,6 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
       return;
     }
 
-    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(activeProducts));
-    localStorage.setItem(PRODUCTS_STORAGE_VERSION_KEY, PRODUCTS_STORAGE_VERSION);
   }, [products]);
 
   useEffect(() => {
