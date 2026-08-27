@@ -127,6 +127,7 @@ const authClientId = shouldResetSession ? `radar-precos-${Date.now()}` : 'radar-
 const authSessionFolder = path.resolve('.wwebjs_auth', `session-${authClientId}`);
 const offersInboxFolder = path.resolve(process.env.OFFERS_INBOX || 'ENTRADA_OFERTAS');
 const processedFilesPath = path.resolve('.processed-offer-files.json');
+const sharedCatalogPath = path.resolve('outputs/shared-whatsapp-catalog.json');
 const receivedWhatsAppFolder = path.join(offersInboxFolder, 'WhatsApp');
 const ownerWhatsAppNumber = '14988359798';
 const monitoredMarkets = [
@@ -144,8 +145,42 @@ const GEMINI_MODEL_FALLBACKS = [
   'gemini-3-flash-preview'
 ];
 
-// In-memory data store for WhatsApp imports
-let importedOffers = [];
+function loadSharedCatalog() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(sharedCatalogPath, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    if (error?.code !== 'ENOENT') console.error('Nao foi possivel ler o catalogo compartilhado:', error);
+    return [];
+  }
+}
+
+function saveSharedCatalog() {
+  fs.mkdirSync(path.dirname(sharedCatalogPath), { recursive: true });
+  const temporaryPath = `${sharedCatalogPath}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(importedOffers, null, 2), 'utf8');
+  fs.renameSync(temporaryPath, sharedCatalogPath);
+}
+
+function addOffersToSharedCatalog(offers) {
+  const existingIds = new Set(importedOffers.map(offer => offer.id));
+  let added = 0;
+  for (const offer of offers) {
+    if (existingIds.has(offer.id)) continue;
+    existingIds.add(offer.id);
+    importedOffers.push(offer);
+    added += 1;
+  }
+  if (added > 0) {
+    offersAwaitingConfirmation += added;
+    saveSharedCatalog();
+  }
+  return added;
+}
+
+// Persistent catalog shared by every browser connected to this collector.
+let importedOffers = loadSharedCatalog();
+let offersAwaitingConfirmation = 0;
 let pendingShoppingItems = [];
 let pendingOfferFiles = new Set();
 let processedFileKeys = new Set();
@@ -887,7 +922,7 @@ async function processOfferFile(filePath) {
   const extractedOffers = await extractOffersFromMedia(media, marketName, 'Pasta monitorada');
 
   if (extractedOffers.length > 0) {
-    importedOffers.push(...extractedOffers);
+    addOffersToSharedCatalog(extractedOffers);
     queueOfferFileForCleanup(filePath);
     processedFileKeys.add(fileKey);
     saveProcessedFileKeys();
@@ -962,7 +997,8 @@ app.get('/api/whatsapp-scan-history', (req, res) => {
 app.get('/api/whatsapp-sync-status', (req, res) => {
   res.json({
     ...productionSync,
-    queuedOffers: importedOffers.length,
+    queuedOffers: offersAwaitingConfirmation,
+    sharedCatalogOffers: importedOffers.length,
     queuedShoppingItems: pendingShoppingItems.length,
     filesWaitingForCatalogConfirmation: pendingOfferFiles.size
   });
@@ -1185,14 +1221,15 @@ app.post('/api/whatsapp-clear', (req, res) => {
     return res.json({
       success: true,
       retainedForProduction: true,
-      queuedOffers: importedOffers.length,
+      queuedOffers: offersAwaitingConfirmation,
+      sharedCatalogOffers: importedOffers.length,
       queuedShoppingItems: pendingShoppingItems.length
     });
   }
 
-  const deliveredOffers = importedOffers.length;
+  const deliveredOffers = offersAwaitingConfirmation;
   const deliveredShoppingItems = pendingShoppingItems.length;
-  importedOffers = [];
+  offersAwaitingConfirmation = 0;
   pendingShoppingItems = [];
   if (isProductionSite) {
     const deletedFiles = deleteConfirmedOfferFiles();
@@ -1519,7 +1556,7 @@ async function handleWhatsAppMessage(msg, {
 
         const extractedOffers = await extractOffersFromMedia(media, fallbackMarket, sourceLabel);
         if (extractedOffers.length > 0) {
-          importedOffers.push(...extractedOffers);
+          addOffersToSharedCatalog(extractedOffers);
           queueOfferFileForCleanup(savedFilePath);
         }
         console.log(`IA concluiu ${fallbackMarket}: ${extractedOffers.length} ofertas extraidas.`);

@@ -1376,15 +1376,17 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
     }
   });
 
-  // Expired products are removed in memory. The catalog is deliberately not
-  // persisted per browser; every reload returns to the deployed source.
+  // Cache the synchronized catalog so it remains available if the local
+  // WhatsApp collector is temporarily offline. The collector reconciles all
+  // browsers with its persistent shared catalog whenever it is available.
   useEffect(() => {
     const activeProducts = removeExpiredProducts(products);
     if (activeProducts.length !== products.length) {
       setProducts(activeProducts);
       return;
     }
-
+    localStorage.setItem(PRODUCTS_STORAGE_KEY, JSON.stringify(activeProducts));
+    localStorage.setItem(PRODUCTS_STORAGE_VERSION_KEY, PRODUCTS_STORAGE_VERSION);
   }, [products]);
 
   useEffect(() => {
