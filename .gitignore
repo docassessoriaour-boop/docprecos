@@ -22,6 +22,7 @@ outputs/whatsapp-bot.pid
 .agents
 .codex
 ENTRADA_OFERTAS/*
+.pending-offer-files.json
 Novo(a) Documento de Texto.txt
 *.inspect.ndjson
 outputs/lista-compras-vovo-nena.xlsx

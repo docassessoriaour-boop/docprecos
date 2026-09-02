@@ -127,6 +127,7 @@ const authClientId = shouldResetSession ? `radar-precos-${Date.now()}` : 'radar-
 const authSessionFolder = path.resolve('.wwebjs_auth', `session-${authClientId}`);
 const offersInboxFolder = path.resolve(process.env.OFFERS_INBOX || 'ENTRADA_OFERTAS');
 const processedFilesPath = path.resolve('.processed-offer-files.json');
+const pendingOfferFilesPath = path.resolve('.pending-offer-files.json');
 const sharedCatalogPath = path.resolve('outputs/shared-whatsapp-catalog.json');
 const receivedWhatsAppFolder = path.join(offersInboxFolder, 'WhatsApp');
 const ownerWhatsAppNumber = '14988359798';
@@ -182,7 +183,7 @@ function addOffersToSharedCatalog(offers) {
 let importedOffers = loadSharedCatalog();
 let offersAwaitingConfirmation = 0;
 let pendingShoppingItems = [];
-let pendingOfferFiles = new Set();
+let pendingOfferFiles = loadPendingOfferFiles();
 let processedFileKeys = new Set();
 let processedMessageIds = new Set();
 let forceScannedMessageIds = new Set();
@@ -329,26 +330,59 @@ function queueOfferFileForCleanup(filePath) {
   }
 
   pendingOfferFiles.add(resolvedPath);
+  savePendingOfferFiles();
+}
+
+function isSafeOfferFilePath(filePath) {
+  const resolvedPath = path.resolve(String(filePath || ''));
+  const relativePath = path.relative(offersInboxFolder, resolvedPath);
+  return Boolean(relativePath) && !relativePath.startsWith('..') && !path.isAbsolute(relativePath);
+}
+
+function loadPendingOfferFiles() {
+  try {
+    if (!fs.existsSync(pendingOfferFilesPath)) return new Set();
+    const parsed = JSON.parse(fs.readFileSync(pendingOfferFilesPath, 'utf8'));
+    if (!Array.isArray(parsed)) return new Set();
+    return new Set(parsed.map(filePath => path.resolve(String(filePath))).filter(isSafeOfferFilePath));
+  } catch (error) {
+    console.log('Nao foi possivel restaurar a fila de limpeza:', error?.message || error);
+    return new Set();
+  }
+}
+
+function savePendingOfferFiles() {
+  try {
+    const temporaryPath = `${pendingOfferFilesPath}.tmp`;
+    fs.writeFileSync(temporaryPath, JSON.stringify([...pendingOfferFiles], null, 2), 'utf8');
+    fs.renameSync(temporaryPath, pendingOfferFilesPath);
+  } catch (error) {
+    console.log('Nao foi possivel salvar a fila de limpeza:', error?.message || error);
+  }
 }
 
 function deleteConfirmedOfferFiles() {
   let deletedFiles = 0;
+  let queueChanged = false;
 
   for (const filePath of [...pendingOfferFiles]) {
     try {
       if (!fs.existsSync(filePath)) {
         pendingOfferFiles.delete(filePath);
+        queueChanged = true;
         continue;
       }
 
       const stat = fs.statSync(filePath);
       if (!stat.isFile() || !getMediaMimeType(filePath)) {
         pendingOfferFiles.delete(filePath);
+        queueChanged = true;
         continue;
       }
 
       fs.unlinkSync(filePath);
       pendingOfferFiles.delete(filePath);
+      queueChanged = true;
       deletedFiles += 1;
       console.log(`🧹 Arquivo removido apos confirmacao do catalogo: ${path.basename(filePath)}`);
     } catch (error) {
@@ -356,6 +390,8 @@ function deleteConfirmedOfferFiles() {
       console.log(`Nao foi possivel remover ${path.basename(filePath)}; nova tentativa sera feita depois: ${error?.message || error}`);
     }
   }
+
+  if (queueChanged) savePendingOfferFiles();
 
   return deletedFiles;
 }
