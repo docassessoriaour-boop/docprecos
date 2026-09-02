@@ -29,11 +29,13 @@ O projeto inclui um coletor local para baixar e importar promoções recebidas p
 3. Em outro terminal, inicie o coletor com `npm run bot`.
 4. Escaneie o QR Code com o WhatsApp do número `14988359798`.
 
-Tambem existem atalhos prontos na raiz do projeto:
+No Windows, execute uma vez `CRIAR_ATALHO_WHATSAPP.ps1` para criar na Area de Trabalho o atalho **Radar de Precos - Iniciar WhatsApp**. Ele inicia o coletor local e abre o app publicado em `https://docprecos.vercel.app/`.
+
+Tambem existem comandos auxiliares na raiz do projeto:
 
 - `INICIAR_APP_E_BOT.cmd`: abre o app, inicia o coletor automatico e abre o navegador.
 - `GERAR_QR_CODE_WHATSAPP.cmd`: reinicia a sessao do WhatsApp e mostra um QR Code novo.
-- `CRIAR_ATALHOS_AREA_DE_TRABALHO.ps1`: cria os dois atalhos acima na Area de Trabalho.
+- `CRIAR_ATALHO_WHATSAPP.ps1`: cria o atalho principal na Area de Trabalho.
 
 O coletor monitora automaticamente ofertas enviadas pelos contatos:
 

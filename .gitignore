@@ -8,6 +8,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+.runtime-node/
+.pnpm-store/
+.windows-dependencies-ready
 dist
 dist-ssr
 *.local

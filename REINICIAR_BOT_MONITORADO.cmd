@@ -1,3 +1,4 @@
 @echo off
-powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0REINICIAR_BOT_MONITORADO.ps1"
-exit /b
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0REINICIAR_BOT_MONITORADO.ps1"
+if errorlevel 1 pause
+
