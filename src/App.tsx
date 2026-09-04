@@ -675,6 +675,43 @@ const isAnimalFoodProduct = (value: string) => {
     hasNormalizedPhrase(` ${text} `, ANIMAL_FOOD_TERMS);
 };
 
+const isCoffeeAccessory = (value: string) => {
+  const text = normalizeSearchText(value);
+
+  return hasNormalizedPhrase(text, [
+    'filtro de cafe',
+    'filtro para cafe',
+    'filtro cafe',
+    'papel filtro',
+    'coador de cafe',
+    'coador para cafe',
+    'coador cafe',
+    'porta filtro',
+    'cafeteira'
+  ]);
+};
+
+const isGroundCoffeeRequest = (value: string) =>
+  hasNormalizedPhrase(normalizeSearchText(value), [
+    'cafe em po',
+    'cafe po',
+    'po de cafe',
+    'cafe torrado e moido',
+    'cafe torrado moido'
+  ]);
+
+const isNonGroundCoffeeProduct = (value: string) =>
+  isCoffeeAccessory(value) || hasNormalizedPhrase(normalizeSearchText(value), [
+    'cafe soluvel',
+    'capsula de cafe',
+    'capsulas de cafe',
+    'cafe em graos',
+    'cafe em grao',
+    'cafe pronto',
+    'bebida de cafe',
+    'cappuccino'
+  ]);
+
 const getProductSubtype = (family: ProductFamily, text: string) => {
   const subtypeRules: Partial<Record<ProductFamily, { label: string; terms: string[] }[]>> = {
     rice: [
@@ -784,7 +821,7 @@ const getProductSearchProfile = (value: string): ProductSearchProfile => {
   else if (hasNormalizedPhrase(text, ['feijao'])) family = 'beans';
   else if (hasNormalizedPhrase(text, ['acucar'])) family = 'sugar';
   else if (hasNormalizedPhrase(text, ['oleo de soja', 'oleo vegetal', 'oleo'])) family = 'oil';
-  else if (hasNormalizedPhrase(text, ['cafe', 'cappuccino'])) family = 'coffee';
+  else if (!isCoffeeAccessory(text) && hasNormalizedPhrase(text, ['cafe', 'cappuccino'])) family = 'coffee';
   else if (hasNormalizedPhrase(text, ['macarrao', 'massa', 'espaguete', 'parafuso', 'penne'])) family = 'pasta';
   else if (hasNormalizedPhrase(text, ['farinha'])) family = 'flour';
   else if (hasNormalizedPhrase(text, ['biscoito', 'bolacha', 'passatempo'])) family = 'biscuit';
@@ -952,6 +989,10 @@ const isMissingRequiredExactProductAttribute = (queryAttributes: Set<ProductAttr
 const isStrictProductMismatch = (query: string, productName: string) => {
   const queryProfile = getProductSearchProfile(query);
   const productProfile = getProductSearchProfile(productName);
+
+  if (isGroundCoffeeRequest(query) && isNonGroundCoffeeProduct(productName)) {
+    return true;
+  }
 
   if (queryProfile.family !== 'unknown' && productProfile.family !== 'unknown' && queryProfile.family !== productProfile.family) {
     return true;
