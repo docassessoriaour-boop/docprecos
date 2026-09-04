@@ -8,30 +8,52 @@ const GEMINI_MODEL_FALLBACKS = [
   'gemini-flash-latest',
   'gemini-3.1-flash-lite'
 ];
+const GEMINI_MAX_ATTEMPTS_PER_MODEL = 2;
+
+function isTemporaryGeminiError(error: unknown): boolean {
+  const message = String((error as any)?.message || error || '').toLowerCase();
+  return (
+    /\b(429|500|502|503|504)\b/.test(message) ||
+    message.includes('high demand') ||
+    message.includes('temporarily') ||
+    message.includes('service unavailable') ||
+    message.includes('fetch failed') ||
+    message.includes('network') ||
+    message.includes('timeout')
+  );
+}
+
+function waitForGeminiRetry(milliseconds: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
 
 async function generateWithGeminiFallback(apiKey: string, contents: any, tools?: any) {
   let lastError: unknown;
 
   for (const modelName of GEMINI_MODEL_FALLBACKS) {
-    try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({
-        model: modelName,
-        ...(tools ? { tools } : {})
-      } as any);
+    for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({
+          model: modelName,
+          ...(tools ? { tools } : {})
+        } as any);
 
-      return await model.generateContent(contents);
-    } catch (error: any) {
-      lastError = error;
-      const message = String(error?.message || error || '').toLowerCase();
-      const canTryNextModel =
-        message.includes('404') ||
-        message.includes('no longer available') ||
-        message.includes('not found') ||
-        message.includes('model');
+        return await model.generateContent(contents);
+      } catch (error: any) {
+        lastError = error;
+        const message = String(error?.message || error || '').toLowerCase();
+        const isTemporary = isTemporaryGeminiError(error);
+        const isUnavailable =
+          message.includes('404') ||
+          message.includes('no longer available') ||
+          message.includes('not found') ||
+          message.includes('not available');
 
-      if (!canTryNextModel) {
-        throw error;
+        if (!isTemporary && !isUnavailable) throw error;
+        if (isUnavailable || attempt === GEMINI_MAX_ATTEMPTS_PER_MODEL) break;
+
+        await waitForGeminiRetry(1500 * attempt);
       }
     }
   }

@@ -145,6 +145,24 @@ const GEMINI_MODEL_FALLBACKS = [
   'gemini-3.1-flash-lite',
   'gemini-3-flash-preview'
 ];
+const GEMINI_MAX_ATTEMPTS_PER_MODEL = 2;
+
+function isTemporaryGeminiError(error) {
+  const message = String(error?.message || error || '').toLowerCase();
+  return (
+    /\b(429|500|502|503|504)\b/.test(message) ||
+    message.includes('high demand') ||
+    message.includes('temporarily') ||
+    message.includes('service unavailable') ||
+    message.includes('fetch failed') ||
+    message.includes('network') ||
+    message.includes('timeout')
+  );
+}
+
+function waitForGeminiRetry(milliseconds) {
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
+}
 
 function loadSharedCatalog() {
   try {
@@ -424,24 +442,35 @@ async function generateWithGeminiFallback(contents) {
   let lastError;
 
   for (const modelName of GEMINI_MODEL_FALLBACKS) {
-    try {
-      const genAI = new GoogleGenerativeAI(apiKey);
-      const model = genAI.getGenerativeModel({ model: modelName });
-      return await model.generateContent(contents);
-    } catch (error) {
-      lastError = error;
-      const message = String(error?.message || error || '').toLowerCase();
-      console.log(`Modelo Gemini ${modelName} indisponivel: ${getCompactError(error)}`);
-      const canTryNextModel =
-        message.includes('404') ||
-        message.includes('no longer available') ||
-        message.includes('not found') ||
-        message.includes('not available');
+    for (let attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS_PER_MODEL; attempt += 1) {
+      try {
+        const genAI = new GoogleGenerativeAI(apiKey);
+        const model = genAI.getGenerativeModel({ model: modelName });
+        return await model.generateContent(contents);
+      } catch (error) {
+        lastError = error;
+        const message = String(error?.message || error || '').toLowerCase();
+        const isTemporary = isTemporaryGeminiError(error);
+        const isUnavailable =
+          message.includes('404') ||
+          message.includes('no longer available') ||
+          message.includes('not found') ||
+          message.includes('not available');
 
-      if (!canTryNextModel) {
-        throw error;
+        console.log(
+          `Modelo Gemini ${modelName} falhou (tentativa ${attempt}/${GEMINI_MAX_ATTEMPTS_PER_MODEL}): ${getCompactError(error)}`
+        );
+
+        if (!isTemporary && !isUnavailable) throw error;
+        if (isUnavailable || attempt === GEMINI_MAX_ATTEMPTS_PER_MODEL) break;
+
+        const delayMs = 1500 * attempt;
+        console.log(`Falha temporaria. Nova tentativa em ${delayMs / 1000}s...`);
+        await waitForGeminiRetry(delayMs);
       }
     }
+
+    console.log(`Tentando o proximo modelo Gemini apos falha de ${modelName}.`);
   }
 
   throw lastError;
