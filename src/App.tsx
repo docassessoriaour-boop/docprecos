@@ -521,6 +521,7 @@ const normalizePackageText = (value: string) =>
     // quantidade de embalagens e nao podem virar "10 un" ao concatenar
     // nome e unidade do produto.
     .replace(/\d+(?:[,.]\d+)?\s*%/g, ' ')
+    .replace(/\b(\d+)\s*[x×]\s*(\d+(?:[,.]\d+)?)\s*(kg|g|ml|l)\b/g, '$1un $2$3')
     .replace(/[^a-z0-9,.\/\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
@@ -1234,8 +1235,26 @@ const getPackageValuePrice = (price: number, packageInfo: ProductPackageInfo) =>
   return price / packageInfo.normalizedAmount;
 };
 
+// The physical package remains available for matching sizes. The comparison
+// basis is independent: a bar of soap is compared per bar, not per kilogram.
+const getProductComparisonPackage = (product: Product): ProductPackageInfo | null => {
+  const text = normalizePackageText(`${product.name} ${product.unit}`);
+  const countedProduct = /\b(sabonete|fralda|fraldas|absorvente|absorventes|esponja|esponjas|escova dental|escova de dentes|papel higienico|papel toalha|ovo|ovos)\b/.test(text)
+    || /\bsabao\b.*\b(barra|pedra|pedaco)\b/.test(text);
+  // Liquid soap is still compared by volume.
+  if (!countedProduct || /\bsabonete\b.*\b(liquido|ml|litro)\b/.test(text) || /\bsabonete\b.*\d\s*(ml|l)\b/.test(text)) {
+    return getProductPackageInfo(`${product.name} ${product.unit}`);
+  }
+  const counts = Array.from(text.matchAll(/\b(\d+)\s*(?:un|und|unid|unidades?|barras?|rolos?|ovos)\b/g), match => Number(match[1]));
+  const pack = text.match(/\b(?:c\s*\/|com|pack|kit|pacote(?:\s+com)?|leve)\s*(\d+)\b/);
+  if (pack) counts.push(Number(pack[1]));
+  if (/\bduzia\b/.test(text)) counts.push(12);
+  const amount = Math.max(1, ...counts.filter(count => Number.isSafeInteger(count) && count > 0));
+  return { kind: 'count', amount, unit: 'un', normalizedAmount: amount, label: `${amount}un` };
+};
+
 const getProductPackageValue = (product: Product) => {
-  const packageInfo = getProductPackageInfo(`${product.name} ${product.unit}`);
+  const packageInfo = getProductComparisonPackage(product);
   if (!packageInfo) return null;
 
   const valuePrice = getPackageValuePrice(product.price, packageInfo);
@@ -1249,8 +1268,12 @@ const getProductPackageValue = (product: Product) => {
 };
 
 const compareProductsByPackageValue = (a: Product, b: Product) => {
-  const aValue = getProductPackageValue(a)?.valuePrice;
-  const bValue = getProductPackageValue(b)?.valuePrice;
+  const aPackage = getProductPackageValue(a);
+  const bPackage = getProductPackageValue(b);
+  // Values with different denominators cannot be ranked against one another.
+  const sameBasis = aPackage?.packageInfo.kind === bPackage?.packageInfo.kind;
+  const aValue = sameBasis ? aPackage?.valuePrice : undefined;
+  const bValue = sameBasis ? bPackage?.valuePrice : undefined;
 
   if (aValue !== undefined && bValue !== undefined && aValue !== bValue) return aValue - bValue;
   if (aValue !== undefined && bValue === undefined) return -1;

@@ -109,7 +109,7 @@ export async function extractOffersWithGemini(
       REGRAS DE EXTRAÇÃO:
       1. Identifique o nome do produto de forma clara (ex: "Arroz Tipo 1 Tio João").
       2. Extraia o preço como um número decimal puro (ex: 25.99). Converta "R$ 25,99" ou "25,99" para o formato numérico 25.99.
-      3. Identifique a unidade de medida se houver (ex: "5kg", "1kg", "unidade", "L").
+      3. Identifique a unidade de medida se houver (ex: "5kg", "1kg", "unidade", "L"). Preserve no nome e na unidade o conteúdo completo dos packs (ex.: 8x85g, 12 unidades). O preço deve ser o total cobrado pelo pacote: sabonete 8x85g por R$19,90 com destaque R$2,49 por unidade deve retornar price 19.90 e unit "8x85g". "Leve 8 pague 6" contém 8 unidades, não 6; não extraia o preço unitário ilustrativo como outra oferta.
       4. Categorize cada produto em uma das seguintes categorias padrão:
          - "Mercearia"
          - "Hortifrúti"
@@ -198,7 +198,7 @@ export async function extractOffersFromImage(
       REGRAS DE EXTRAÇÃO:
       1. Identifique o nome do produto de forma clara (ex: "Arroz Tipo 1 Tio João").
       2. Extraia o preço como um número decimal puro (ex: 25.99). Converta "R$ 25,99" ou "25,99" para o formato numérico 25.99.
-      3. Identifique a unidade de medida se houver (ex: "5kg", "1kg", "unidade", "L").
+      3. Identifique a unidade de medida se houver (ex: "5kg", "1kg", "unidade", "L"). Preserve no nome e na unidade o conteúdo completo dos packs (ex.: 8x85g, 12 unidades). O preço deve ser o total cobrado pelo pacote: sabonete 8x85g por R$19,90 com destaque R$2,49 por unidade deve retornar price 19.90 e unit "8x85g". "Leve 8 pague 6" contém 8 unidades, não 6; não extraia o preço unitário ilustrativo como outra oferta.
       4. Categorize cada produto em uma das seguintes categorias padrão:
          - "Mercearia"
          - "Hortifrúti"
@@ -285,7 +285,7 @@ export async function extractOffersFromPDFFile(
       REGRAS:
       1. Nome claro do produto.
       2. Preço como número decimal puro, exemplo 25.99.
-      3. Unidade, exemplo "kg", "5kg", "1L", "un".
+      3. Unidade, exemplo "kg", "5kg", "1L", "un". Preserve no nome e na unidade o conteúdo completo dos packs (ex.: 8x85g, 12 unidades). O preço deve ser o total cobrado pelo pacote: sabonete 8x85g por R$19,90 com destaque R$2,49 por unidade deve retornar price 19.90 e unit "8x85g". "Leve 8 pague 6" contém 8 unidades, não 6; não extraia o preço unitário ilustrativo como outra oferta.
       4. Categoria: "Mercearia", "Hortifrúti", "Açougue", "Bebidas", "Limpeza", "Higiene", "Frios e Laticínios", "Padaria" ou "Outros".
       5. Datas no formato AAAA-MM-DD somente quando explicitamente visíveis. Se houver dia/mês sem ano, use o ano atual (${new Date().getFullYear()}); se a faixa atravessar dezembro/janeiro, o fim pertence ao ano seguinte. Nunca estime datas.
 
