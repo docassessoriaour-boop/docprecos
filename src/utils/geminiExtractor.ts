@@ -106,7 +106,7 @@ export async function extractOffersWithGemini(
       
       ATENÇÃO: Extraia a lista completa de ofertas presentes. Não limite o resultado e não abrevie. Se houver 15, 30, 50 ou mais itens no folheto, extraia TODOS eles.
 
-      REGRAS DE EXTRAÇÃO:
+      REGRAS DE EXTRAÇÃO: Associe nome, preço e unidade apenas ao mesmo bloco da oferta; não copie preço de produto vizinho. Confira separadamente cada corte de carne (acém, músculo etc.). Preserve preço por kg sem dividir novamente. Omita ofertas cujo vínculo entre nome e preço seja ilegível.
       1. Identifique o nome do produto de forma clara (ex: "Arroz Tipo 1 Tio João").
       2. Extraia o preço como um número decimal puro (ex: 25.99). Converta "R$ 25,99" ou "25,99" para o formato numérico 25.99.
       3. Identifique a unidade de medida se houver (ex: "5kg", "1kg", "unidade", "L"). Preserve no nome e na unidade o conteúdo completo dos packs (ex.: 8x85g, 12 unidades). O preço deve ser o total cobrado pelo pacote: sabonete 8x85g por R$19,90 com destaque R$2,49 por unidade deve retornar price 19.90 e unit "8x85g". "Leve 8 pague 6" contém 8 unidades, não 6; não extraia o preço unitário ilustrativo como outra oferta.
@@ -195,7 +195,7 @@ export async function extractOffersFromImage(
       
       ATENÇÃO: Extraia a lista completa de ofertas presentes na imagem. Não limite o resultado e não abrevie. Se houver 15, 30, 50 ou mais itens visíveis na imagem, extraia TODOS eles.
 
-      REGRAS DE EXTRAÇÃO:
+      REGRAS DE EXTRAÇÃO: Associe nome, preço e unidade apenas ao mesmo bloco da oferta; não copie preço de produto vizinho. Confira separadamente cada corte de carne (acém, músculo etc.). Preserve preço por kg sem dividir novamente. Omita ofertas cujo vínculo entre nome e preço seja ilegível.
       1. Identifique o nome do produto de forma clara (ex: "Arroz Tipo 1 Tio João").
       2. Extraia o preço como um número decimal puro (ex: 25.99). Converta "R$ 25,99" ou "25,99" para o formato numérico 25.99.
       3. Identifique a unidade de medida se houver (ex: "5kg", "1kg", "unidade", "L"). Preserve no nome e na unidade o conteúdo completo dos packs (ex.: 8x85g, 12 unidades). O preço deve ser o total cobrado pelo pacote: sabonete 8x85g por R$19,90 com destaque R$2,49 por unidade deve retornar price 19.90 e unit "8x85g". "Leve 8 pague 6" contém 8 unidades, não 6; não extraia o preço unitário ilustrativo como outra oferta.
@@ -283,7 +283,7 @@ export async function extractOffersFromPDFFile(
       - Extraia todos os itens que conseguir identificar com confiança.
 
       REGRAS:
-      1. Nome claro do produto.
+      1. Nome claro do produto. Associe nome, preço e unidade apenas ao mesmo bloco da oferta; não copie preço de produto vizinho. Confira separadamente cada corte de carne (acém, músculo etc.). Preserve preço por kg sem dividir novamente. Omita ofertas cujo vínculo entre nome e preço seja ilegível.
       2. Preço como número decimal puro, exemplo 25.99.
       3. Unidade, exemplo "kg", "5kg", "1L", "un". Preserve no nome e na unidade o conteúdo completo dos packs (ex.: 8x85g, 12 unidades). O preço deve ser o total cobrado pelo pacote: sabonete 8x85g por R$19,90 com destaque R$2,49 por unidade deve retornar price 19.90 e unit "8x85g". "Leve 8 pague 6" contém 8 unidades, não 6; não extraia o preço unitário ilustrativo como outra oferta.
       4. Categoria: "Mercearia", "Hortifrúti", "Açougue", "Bebidas", "Limpeza", "Higiene", "Frios e Laticínios", "Padaria" ou "Outros".
@@ -503,7 +503,7 @@ export async function searchOffersOnline(
       Identifique ofertas atuais válidas (cuja data de validade seja IGUAL OU MAIOR que ${currentDate}) nos supermercados, mercados e atacados da cidade de ${city} e região próxima.
       Priorize fontes oficiais, encartes digitais, páginas de ofertas dos mercados e plataformas de folhetos. Não invente ofertas sem fonte pública.
 
-      REGRAS DE EXTRAÇÃO:
+      REGRAS DE EXTRAÇÃO: Associe nome, preço e unidade apenas ao mesmo bloco da oferta; não copie preço de produto vizinho. Confira separadamente cada corte de carne (acém, músculo etc.). Preserve preço por kg sem dividir novamente. Omita ofertas cujo vínculo entre nome e preço seja ilegível.
       1. Extraia o nome do produto (ex: "Cerveja Heineken Lata 350ml", "Arroz Tipo 1 Tio João 5kg").
       2. Extraia o preço como número decimal puro (ex: 4.99 ou 24.90).
       3. Identifique o supermercado/estabelecimento onde a oferta está ativa (campo "market").

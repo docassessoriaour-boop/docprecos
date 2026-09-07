@@ -207,9 +207,17 @@ const correctKnownOfferPrice = (product: Product): Product => {
   return product;
 };
 
+// Reported incorrect extraction. The replacement price is not confirmed;
+// exclude only this promotion instead of borrowing a different offer's price.
+const isKnownIncorrectOffer = (product: Product): boolean =>
+  normalizeDuplicateKeyText(product.name) === normalizeDuplicateKeyText('Músculo Bovino KG') &&
+  normalizeMarketName(product.market) === 'Sagrada Família' && product.city === 'Ourinhos' &&
+  product.endDate === '2026-09-07' && Math.abs(product.price - 19.99) < 0.001;
+
 const removeExpiredProducts = (products: Product[]) =>
   removeDuplicateProducts(
     products
+      .filter(product => !isKnownIncorrectOffer(product))
       .map(product => {
         const isUnverifiedWhatsAppOffer = product.source?.toLowerCase().includes('whatsapp') && product.validityVerified !== true;
         const normalizedProduct = normalizeOfferDateRange({

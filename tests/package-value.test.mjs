@@ -25,6 +25,7 @@ for (const [name, price, expected, basis] of [
   ['Sabonete líquido 250ml', 10, 40, 'volume'],
   ['Arroz 5kg', 20, 4, 'weight'],
   ['Acém kg', 30, 30, 'weight'],
+  ['Músculo Bovino KG', 32.98, 32.98, 'weight'],
   ['Leite 6x1L', 24, 4, 'volume'],
 ]) test(`${name} uses ${basis}`, () => {
   const result = value(product(name, price));

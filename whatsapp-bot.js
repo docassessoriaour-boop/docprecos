@@ -888,6 +888,7 @@ async function extractOffersFromMedia(media, fallbackMarket, sourceLabel) {
   const prompt = `
     Você é um assistente especialista em analisar ofertas de supermercados de Ourinhos/SP recebidas por WhatsApp.
     Analise o arquivo anexado, que pode ser uma imagem ou PDF de encarte, e extraia TODAS as ofertas visíveis.
+    Associe nome, preço e unidade apenas dentro do mesmo bloco visual da oferta. Em açougue, confira separadamente cada corte (acém, músculo etc.); não copie o preço de uma oferta vizinha. Preço por kg deve permanecer por kg, sem divisão adicional. Se o vínculo entre produto e preço não estiver legível, omita a oferta em vez de adivinhar.
 
     Se o nome do supermercado estiver visível, retorne esse nome no campo "market". Se não estiver visível, use "${fallbackMarket}".
     Retorne datas somente quando estiverem explicitamente visíveis e legíveis. Nunca estime ou invente uma validade.
