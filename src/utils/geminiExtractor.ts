@@ -585,6 +585,8 @@ export async function parseInformalShoppingList(
       1. Normalize o nome do item (ex: "arroz", "leite integral", "cerveja heineken").
       2. Tente extrair a quantidade numérica correta (ex: "3 leites" -> quantidade 3, "um detergente" -> quantidade 1). Se não houver quantidade especificada, use 1.
       3. Se o texto contiver termos informais que não sejam produtos de supermercado, ignore-os.
+      4. Preserve obrigatoriamente no name a marca, o corte, o tipo e o tamanho da embalagem solicitados. Nunca simplifique "requeijão cremoso 400g" para "requeijão cremoso", nem remova "Alpino" de "achocolatado Alpino".
+      5. Separe quantidade de compra do conteúdo da embalagem: "2 requeijões cremosos 400g" deve retornar name "requeijão cremoso 400g" e quantity 2. Não transforme 400g em quantidade 400.
 
       Responda APENAS com um array JSON válido (sem formatações markdown extras, sem \`\`\`json ou similar), seguindo exatamente esta estrutura:
       [

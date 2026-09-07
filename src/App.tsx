@@ -271,6 +271,8 @@ const normalizeSearchText = (value: string) => {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\bacen\b/g, 'acem')
+    .replace(/\bcarne bovina\s*(?=acem|musculo|patinho|coxao|alcatra|picanha)/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
@@ -291,7 +293,7 @@ const getSearchTokens = (value: string) => {
   const cached = searchTokensCache.get(value);
   if (cached) return cached;
 
-  const tokens = normalizeSearchText(value)
+  const tokens = normalizeSearchText(value.replace(/\d+(?:[,.]\d+)?\s*(kg|g|gr|gramas|ml|l|lt|litros|un|und|unidades)\b/gi, ' '))
     .split(' ')
     .filter(token => token.length > 1 && !SEARCH_STOP_WORDS.has(token));
 
@@ -987,6 +989,7 @@ const isMissingRequiredExactProductAttribute = (queryAttributes: Set<ProductAttr
   requiredExactSearchAttributes.some(attribute => queryAttributes.has(attribute) && !productAttributes.has(attribute));
 
 const isStrictProductMismatch = (query: string, productName: string) => {
+  if (hasProductIdentityMismatch(query, productName)) return true;
   const queryProfile = getProductSearchProfile(query);
   const productProfile = getProductSearchProfile(productName);
 
@@ -1074,6 +1077,40 @@ const isExcludedProductMatch = (query: string, productName: string) => {
 
 const tokenMatchesProductText = (token: string, productTokens: Set<string>) =>
   productTokens.has(token);
+
+// A shared ingredient, audience or family is not sufficient evidence of identity.
+// Keep explicit request terms mandatory, including brands not in KNOWN_BRANDS.
+const hasProductIdentityMismatch = (query: string, productName: string) => {
+  const canonicalize = (value: string) => normalizeSearchText(value)
+    .replace(/\bacen\b/g, 'acem')
+    .replace(/\b(gatos|felinos)\b/g, 'gato')
+    .replace(/\b(caes|cao|cachorros)\b/g, 'cachorro')
+    .replace(/\bbolacha\b/g, 'biscoito')
+    .replace(/\b(pedra|pedaco)\b/g, 'barra')
+    .replace(/\bsem lactose\b/g, 'zero lactose')
+    .replace(/\bsemi desnatado\b/g, 'semidesnatado');
+  const requested = canonicalize(query);
+  const offered = canonicalize(productName);
+  const contains = (text: string, pattern: RegExp) => pattern.test(text);
+  const processed = /\b(bolo|bolinho|mistura|suco|nectar|refresco|gelatina|geleia|iogurte|sorvete|picole|biscoito|bombom|chocolate|recheio|polpa)\b/;
+  const produce = /\b(morango|cenoura|banana|maca|laranja|uva|abacaxi|limao|maracuja|coco|tomate|batata|mandioca|cebola)\b/;
+  if (contains(requested, produce) && !contains(requested, processed) && contains(offered, processed)) return true;
+  if (/\balcool\b/.test(requested) && !/\bvinagre\b/.test(requested) && /\bvinagre\b/.test(offered)) return true;
+  const preparedMeat = /\b(hamburguer|hamburger|empanado|almondega|salsicha|linguica|nuggets|kibe)\b/;
+  if (/\b(carne|acem|musculo|patinho|coxao|alcatra|picanha)\b/.test(requested) && !preparedMeat.test(requested) && preparedMeat.test(offered)) return true;
+  const litter = /\b(areia|granulado|granulados)\b/;
+  if (litter.test(requested) !== litter.test(offered) && /\bgato\b/.test(`${requested} ${offered}`)) return true;
+
+  // Package equivalence is checked separately (400g equals 0.4kg).
+  const stripPackage = (value: string) => value.replace(/\d+(?:[,.]\d+)?\s*(kg|g|gr|gramas|ml|l|lt|litros|un|und|unidades)\b/gi, ' ');
+  const required = getSearchTokens(canonicalize(stripPackage(query)));
+  const available = new Set(getSearchTokens(canonicalize(stripPackage(productName))));
+  const hasBeefCut = /\b(acem|musculo|patinho|coxao|alcatra|picanha)\b/.test(requested) && /\b(acem|musculo|patinho|coxao|alcatra|picanha)\b/.test(offered);
+  return required.some(token => {
+    if (hasBeefCut && ['carne', 'bovina', 'bovino'].includes(token)) return false;
+    return !available.has(token);
+  });
+};
 
 const getProductMatchScore = (query: string, product: Product) => {
   const normalizedQuery = normalizeSearchText(query);
