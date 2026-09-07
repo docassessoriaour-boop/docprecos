@@ -2,6 +2,11 @@ export interface Product {
   id: string;
   name: string;
   price: number;
+  regularPrice?: number;
+  specialPrice?: number;
+  specialOnly?: boolean;
+  specialCondition?: string;
+  priceTier?: 'regular' | 'special';
   category: string;
   unit: string;
   market: string;

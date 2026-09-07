@@ -27,9 +27,11 @@ for (const change of [
 });
 
 const muscle = { name: 'Músculo Bovino KG', market: 'Sagrada Família', city: 'Ourinhos', endDate: '2026-09-07', price: 19.99 };
-test('Exclude the reported muscle offer without inventing a replacement price', () => {
+test('Restore muscle with the normal and club prices confirmed in the flyer', () => {
   assert.equal(rejected(muscle), true);
-  assert.equal(correct(muscle).price, 19.99);
+  assert.equal(correct(muscle).price, 39.90);
+  assert.equal(correct(muscle).specialPrice, 32.98);
+  assert.equal(rejected(correct(muscle)), false);
 });
 for (const change of [{ name: 'Acém Bovino KG' }, { market: 'Outro' }, { endDate: '2026-09-08' }, { price: 32.98 }]) {
   test(`Do not exclude other meat offers: ${JSON.stringify(change)}`, () => {

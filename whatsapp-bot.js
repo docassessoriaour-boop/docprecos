@@ -1,3 +1,4 @@
+import { readCustomerPrices, CUSTOMER_PRICING_INSTRUCTIONS } from './src/utils/customerPricing.mjs';
 /**
  * Radar de Preços - WhatsApp Bot (Local Integration)
  * 
@@ -615,7 +616,7 @@ function normalizeOffer(rawItem, idx, fallbackMarket, sourceLabel) {
   return {
     id: `wa-offer-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000000)}`,
     name: String(rawItem.name || 'Produto sem nome').trim(),
-    price: parsePrice(rawItem.price),
+    price: parsePrice(rawItem.regularPrice || rawItem.price || rawItem.specialPrice), ...readCustomerPrices(rawItem),
     category: rawItem.category || 'Outros',
     unit: rawItem.unit || 'un',
     market,
@@ -894,6 +895,7 @@ async function extractOffersFromMedia(media, fallbackMarket, sourceLabel) {
     Retorne datas somente quando estiverem explicitamente visíveis e legíveis. Nunca estime ou invente uma validade.
     Se houver data de validade, retorne em AAAA-MM-DD. Se houver apenas dia e mês, use o ano atual ${new Date().getFullYear()}; se a faixa atravessar dezembro/janeiro, o fim pertence ao ano seguinte.
     No campo "validityEvidence", copie exatamente o pequeno trecho visível que comprova a validade (por exemplo, "Ofertas válidas até 16/08"). Se não houver esse texto na imagem, deixe startDate, endDate e validityEvidence vazios.
+    ${CUSTOMER_PRICING_INSTRUCTIONS}
     Diferencie preço total da embalagem de preço por unidade ilustrativo. O campo price deve corresponder à embalagem inteira descrita no name/unit, nunca ao valor unitário dividido novamente pelo conteúdo.
     Preserve contagem e peso por unidade: "C/6 Unidades 90g", "C/3 90g", "8x85g". "Leve 8 pague 6" contém 8 unidades.
     Exemplo: pack de 6 sabonetes com total R$23,94 e indicação R$3,99 cada deve retornar price 23.94, unit "6un 90g". Creme dental C/3 90g por R$23,97 deve retornar price 23.97, unit "3un 90g".

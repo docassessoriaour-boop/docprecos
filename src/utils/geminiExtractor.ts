@@ -1,3 +1,4 @@
+import { readCustomerPrices, CUSTOMER_PRICING_INSTRUCTIONS } from './customerPricing.mjs';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import type { Product } from '../types';
 import { getTodayOfferDate, sanitizeOfferDate } from './offerDates';
@@ -106,6 +107,7 @@ export async function extractOffersWithGemini(
       
       ATENÇÃO: Extraia a lista completa de ofertas presentes. Não limite o resultado e não abrevie. Se houver 15, 30, 50 ou mais itens no folheto, extraia TODOS eles.
 
+      ${CUSTOMER_PRICING_INSTRUCTIONS}
       REGRAS DE EXTRAÇÃO: Associe nome, preço e unidade apenas ao mesmo bloco da oferta; não copie preço de produto vizinho. Confira separadamente cada corte de carne (acém, músculo etc.). Preserve preço por kg sem dividir novamente. Omita ofertas cujo vínculo entre nome e preço seja ilegível.
       1. Identifique o nome do produto de forma clara (ex: "Arroz Tipo 1 Tio João").
       2. Extraia o preço como um número decimal puro (ex: 25.99). Converta "R$ 25,99" ou "25,99" para o formato numérico 25.99.
@@ -127,6 +129,7 @@ export async function extractOffersWithGemini(
       interface ProductResult {
         name: string;
         price: number;
+        regularPrice?: number; specialPrice?: number; specialCondition?: string; specialOnly?: boolean;
         category: string;
         unit: string;
         startDate?: string; // YYYY-MM-DD
@@ -145,7 +148,7 @@ export async function extractOffersWithGemini(
       return parsed.map((item: any, idx: number) => ({
         id: `${marketName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000000)}`,
         name: item.name || 'Produto Sem Nome',
-        price: parsePrice(item.price),
+        price: parsePrice(item.regularPrice || item.price || item.specialPrice), ...readCustomerPrices(item),
         category: item.category || 'Outros',
         unit: item.unit || 'un',
         market: normalizeMarketName(marketName),
@@ -195,6 +198,7 @@ export async function extractOffersFromImage(
       
       ATENÇÃO: Extraia a lista completa de ofertas presentes na imagem. Não limite o resultado e não abrevie. Se houver 15, 30, 50 ou mais itens visíveis na imagem, extraia TODOS eles.
 
+      ${CUSTOMER_PRICING_INSTRUCTIONS}
       REGRAS DE EXTRAÇÃO: Associe nome, preço e unidade apenas ao mesmo bloco da oferta; não copie preço de produto vizinho. Confira separadamente cada corte de carne (acém, músculo etc.). Preserve preço por kg sem dividir novamente. Omita ofertas cujo vínculo entre nome e preço seja ilegível.
       1. Identifique o nome do produto de forma clara (ex: "Arroz Tipo 1 Tio João").
       2. Extraia o preço como um número decimal puro (ex: 25.99). Converta "R$ 25,99" ou "25,99" para o formato numérico 25.99.
@@ -215,6 +219,7 @@ export async function extractOffersFromImage(
       interface ProductResult {
         name: string;
         price: number;
+        regularPrice?: number; specialPrice?: number; specialCondition?: string; specialOnly?: boolean;
         category: string;
         unit: string;
         startDate?: string;
@@ -230,7 +235,7 @@ export async function extractOffersFromImage(
       return parsed.map((item: any, idx: number) => ({
         id: `${marketName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000000)}`,
         name: item.name || 'Produto Sem Nome',
-        price: parsePrice(item.price),
+        price: parsePrice(item.regularPrice || item.price || item.specialPrice), ...readCustomerPrices(item),
         category: item.category || 'Outros',
         unit: item.unit || 'un',
         market: normalizeMarketName(marketName),
@@ -282,6 +287,7 @@ export async function extractOffersFromPDFFile(
       - Não retorne 0 ofertas se houver produtos/preços visíveis.
       - Extraia todos os itens que conseguir identificar com confiança.
 
+      ${CUSTOMER_PRICING_INSTRUCTIONS}
       REGRAS:
       1. Nome claro do produto. Associe nome, preço e unidade apenas ao mesmo bloco da oferta; não copie preço de produto vizinho. Confira separadamente cada corte de carne (acém, músculo etc.). Preserve preço por kg sem dividir novamente. Omita ofertas cujo vínculo entre nome e preço seja ilegível.
       2. Preço como número decimal puro, exemplo 25.99.
@@ -308,7 +314,7 @@ export async function extractOffersFromPDFFile(
     return parsed.map((item: any, idx: number) => ({
       id: `${marketName.toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000000)}`,
       name: item.name || 'Produto Sem Nome',
-      price: parsePrice(item.price),
+      price: parsePrice(item.regularPrice || item.price || item.specialPrice), ...readCustomerPrices(item),
       category: item.category || 'Outros',
       unit: item.unit || 'un',
       market: normalizeMarketName(marketName),
@@ -366,6 +372,9 @@ export function extractOffersFallback(
   lines.forEach((line, idx) => {
     const cleanLine = line.trim();
     if (!cleanLine || cleanLine.length < 5) return;
+    // The text-only fallback cannot reliably associate multiple conditional
+    // prices. Leave these lines to the structured AI extraction.
+    if (/clube|exclusiv|cliente especial|cadastrad/i.test(cleanLine)) return;
 
     const match = cleanLine.match(priceRegex);
     if (match) {
@@ -503,6 +512,7 @@ export async function searchOffersOnline(
       Identifique ofertas atuais válidas (cuja data de validade seja IGUAL OU MAIOR que ${currentDate}) nos supermercados, mercados e atacados da cidade de ${city} e região próxima.
       Priorize fontes oficiais, encartes digitais, páginas de ofertas dos mercados e plataformas de folhetos. Não invente ofertas sem fonte pública.
 
+      ${CUSTOMER_PRICING_INSTRUCTIONS}
       REGRAS DE EXTRAÇÃO: Associe nome, preço e unidade apenas ao mesmo bloco da oferta; não copie preço de produto vizinho. Confira separadamente cada corte de carne (acém, músculo etc.). Preserve preço por kg sem dividir novamente. Omita ofertas cujo vínculo entre nome e preço seja ilegível.
       1. Extraia o nome do produto (ex: "Cerveja Heineken Lata 350ml", "Arroz Tipo 1 Tio João 5kg").
       2. Extraia o preço como número decimal puro (ex: 4.99 ou 24.90).
@@ -524,6 +534,7 @@ export async function searchOffersOnline(
       9. Descarte preços improváveis ou textos que não sejam produtos de supermercado.
       10. Para itens de limpeza, respeite o produto principal. Se o item pedido for "sabão em barra", "sabão em pedra" ou "sabão em pedaço", retorne apenas sabão de lavar roupa em barra/pedra/pedaço; nunca retorne chocolate, alimentos ou sabonete só porque também usam a palavra "barra".
 
+      ${CUSTOMER_PRICING_INSTRUCTIONS}
       Retorne APENAS um array JSON válido (sem formatações markdown extras, sem \`\`\`json ou similar), contendo objetos na seguinte estrutura:
       [
         {
@@ -547,12 +558,12 @@ export async function searchOffersOnline(
     if (Array.isArray(parsed)) {
       return parsed
         .map((item: any, idx: number) => {
-          const price = parsePrice(item.price);
+          const price = parsePrice(item.regularPrice || item.price || item.specialPrice);
           const endDate = sanitizeOfferDate(item.endDate);
           return {
             id: `${(item.market || 'online').toLowerCase().replace(/\s+/g, '-')}-${Date.now()}-${idx}-${Math.floor(Math.random() * 1000000)}`,
             name: String(item.name || '').trim() || 'Produto Sem Nome',
-            price,
+            price, ...readCustomerPrices(item),
             category: item.category || 'Outros',
             unit: item.unit || 'un',
             market: normalizeMarketName(item.market, 'Supermercado Online'),

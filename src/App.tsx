@@ -27,6 +27,7 @@ import { extractTextFromPDF } from './utils/pdfParser';
 import { extractOffersWithGemini, extractOffersFallback, generateDemoOffers, fetchHtmlFromUrl, extractOffersFromImage, extractOffersFromPDFFile, searchOffersOnline, parseInformalShoppingList } from './utils/geminiExtractor';
 import { formatOfferDate, getTodayDateOnly, getTodayOfferDate, isOfferExpired, normalizeOfferDateRange, parseOfferDate } from './utils/offerDates';
 import { normalizeMarketName } from './utils/marketNames';
+import { resolveCustomerPrice } from './utils/customerPricing.mjs';
 import defaultProductsData from './data/defaultProducts.json';
 import './App.css';
 
@@ -49,6 +50,7 @@ const getProductDuplicateKey = (product: Product) => [
   normalizeDuplicateKeyText(product.market),
   normalizeDuplicateKeyText(product.name),
   formatProductPriceForKey(product.price),
+  product.regularPrice || '', product.specialPrice || '', product.specialOnly || false, product.specialCondition || '',
   product.endDate || ''
 ].join('|');
 
@@ -199,6 +201,13 @@ const formatProductInsertionDateTime = (value?: string) => {
 // Do not extrapolate the correction to other promotions or prices.
 const correctKnownOfferPrice = (product: Product): Product => {
   const name = normalizeDuplicateKeyText(product.name);
+  // Prices confirmed in the customer's flyer; do not change its validity.
+  if (name === normalizeDuplicateKeyText('Músculo Bovino KG') &&
+    normalizeMarketName(product.market) === 'Sagrada Família' && product.city === 'Ourinhos' &&
+    ['2026-09-07', '2026-09-08'].includes(product.endDate || '') &&
+    [19.99, 32.98, 39.90].some(price => Math.abs(product.price - price) < 0.001)) {
+    return { ...product, price: 39.90, regularPrice: 39.90, specialPrice: 32.98, specialCondition: 'Clube+ Família' };
+  }
   if (name === normalizeDuplicateKeyText('Sabonete Dove C/6 Unidades 90g') &&
     normalizeMarketName(product.market) === 'Amigão' && product.city === 'Ourinhos' &&
     product.endDate === '2026-09-09' && Math.abs(product.price - 3.99) < 0.001) {
@@ -217,6 +226,7 @@ const isKnownIncorrectOffer = (product: Product): boolean =>
 const removeExpiredProducts = (products: Product[]) =>
   removeDuplicateProducts(
     products
+      .map(correctKnownOfferPrice)
       .filter(product => !isKnownIncorrectOffer(product))
       .map(product => {
         const isUnverifiedWhatsAppOffer = product.source?.toLowerCase().includes('whatsapp') && product.validityVerified !== true;
@@ -1284,7 +1294,7 @@ const getProductPackageValue = (product: Product) => {
   return {
     packageInfo,
     valuePrice,
-    label: `${formatCurrency(valuePrice)}/${getProductPackageValueLabel(packageInfo)}`
+    label: `${formatCurrency(valuePrice)}/${getProductPackageValueLabel(packageInfo)}${product.priceTier === 'special' ? ' (cliente especial)' : ''}`
   };
 };
 
@@ -1400,6 +1410,16 @@ type AppProps = {
 
 export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: AppProps) {
   const [products, setProducts] = useState<Product[]>(loadSavedProducts);
+  const [specialMarkets, setSpecialMarkets] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem('special_customer_markets') || '[]');
+      return Array.isArray(saved) ? saved.filter(value => typeof value === 'string') : [];
+    } catch { return []; }
+  });
+  useEffect(() => { localStorage.setItem('special_customer_markets', JSON.stringify(specialMarkets)); }, [specialMarkets]);
+  const pricedProducts = useMemo(() => products.map(product =>
+    resolveCustomerPrice(product, specialMarkets.includes(normalizeMarketName(product.market)))
+  ).filter((product): product is Product => product !== null), [products, specialMarkets]);
   
   const [apiKey, setApiKey] = useState<string>(() => {
     return localStorage.getItem('gemini_api_key') || '';
@@ -2771,7 +2791,7 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
   const getAllOfferOptionsForItem = (itemName: string, city: string) => {
     const seenOfferKeys = new Set<string>();
 
-    return products
+    return pricedProducts
       .filter(product => city === 'Todas' || product.city === city)
       .filter(product => !isOfferExpired(product.endDate))
       .map(product => ({ product, score: getSavedListItemOfferScore(itemName, product) }))
@@ -2795,7 +2815,7 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
     offerIds: Record<string, string> = {}
   ) => {
     const consolidatedItems = consolidateShoppingItems(itemsToCompare);
-    const cityProducts = products.filter(product => city === 'Todas' || product.city === city);
+    const cityProducts = pricedProducts.filter(product => city === 'Todas' || product.city === city);
     const activeCityProducts = cityProducts.filter(product => !isOfferExpired(product.endDate));
     const marketsForCity = Array.from(new Set(cityProducts.map(product => product.market)));
 
@@ -2939,7 +2959,7 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
       bestAllInOne: bestSingleMarket,
       offerOptionsByItemKey
     };
-  }, [products]);
+  }, [pricedProducts]);
 
   // CALCULATE COMPARISONS FOR THE SELECTED CITY
   const currentComparison = useMemo(
@@ -3000,9 +3020,10 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
   }, [activeTab, searchTerm, selectedCategory, selectedProductGroup, selectedMarket, selectedCity]);
 
   const exportProductsPdf = () => {
-    const sourceProducts = productsMatchingFiltersWithoutExpiry.length > 0
+    const sourceProducts = (productsMatchingFiltersWithoutExpiry.length > 0
       ? productsMatchingFiltersWithoutExpiry
-      : products;
+      : products).map(product => resolveCustomerPrice(product, specialMarkets.includes(normalizeMarketName(product.market))))
+      .filter((product): product is Product => product !== null);
 
     if (sourceProducts.length === 0) {
       alert('Nenhum produto cadastrado para gerar PDF.');
@@ -3038,7 +3059,7 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
               <td>${product.name}</td>
               <td>${getLikelyBrand(product.name)}</td>
               <td>${product.market}</td>
-              <td>R$ ${product.price.toFixed(2).replace('.', ',')}</td>
+              <td>R$ ${product.price.toFixed(2).replace('.', ',')}${product.priceTier === 'special' ? ' (cliente especial)' : ''}</td>
               <td>${formatDate(product.endDate)}</td>
             </tr>
           `).join('')}
@@ -3202,7 +3223,8 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
   };
 
   const exportBestPricesPdf = () => {
-    const sourceProducts = filteredProducts;
+    const sourceProducts = filteredProducts.map(product => resolveCustomerPrice(product, specialMarkets.includes(normalizeMarketName(product.market))))
+      .filter((product): product is Product => product !== null);
 
     if (sourceProducts.length === 0) {
       alert('Nenhuma oferta encontrada para gerar a lista de melhores preços.');
@@ -3452,6 +3474,19 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
       </div>
 
       {/* City selector in control bar */}
+      <details className="glass-panel" style={{ padding: '1rem', marginBottom: '1rem' }}>
+        <summary style={{ cursor: 'pointer', fontWeight: 700 }}>Cliente especial / clube de descontos — {specialMarkets.length} mercado(s) selecionado(s)</summary>
+        <p>Marque os mercados onde você tem acesso ao preço especial. Sem seleção, usamos o preço normal. Confira as condições do clube antes da compra. Esta escolha vale para as listas, comparações e PDFs neste navegador.</p>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '1rem' }}>
+          {Array.from(new Set(products.map(product => normalizeMarketName(product.market)))).sort().map(market => (
+            <label key={market} style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <input type="checkbox" checked={specialMarkets.includes(market)} onChange={event => {
+                setSpecialMarkets(prev => event.target.checked ? [...prev, market] : prev.filter(value => value !== market));
+              }} />{market}
+            </label>
+          ))}
+        </div>
+      </details>
       <div className="glass-panel" style={{ marginBottom: '2rem', padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
           <Globe className="text-success" size={20} />
@@ -4013,9 +4048,10 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
                     </div>
 
                     <div className="product-price-row">
-                      <span className="product-price">R$ {p.price.toFixed(2)}</span>
+                      <span className="product-price">{p.specialOnly ? 'Especial' : 'Normal'}: {formatCurrency(p.regularPrice || p.price)}</span>
                       <span className="product-unit">Unidade: {p.unit}</span>
                     </div>
+                    {p.specialPrice && <p className="text-success">Cliente especial: {formatCurrency(p.specialPrice)}{p.specialCondition ? ` — ${p.specialCondition}` : ''}</p>}
                     <div className="product-inserted-at">
                       <Clock size={13} />
                       <span>{formatProductInsertionDateTime(p.insertedAt)}</span>
