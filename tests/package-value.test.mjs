@@ -10,6 +10,10 @@ const code = ts.transpile(source, { target: ts.ScriptTarget.ES2022 });
 const [value, compare, physicalPackage] = vm.runInNewContext(`${code}\n[getProductPackageValue, compareProductsByPackageValue, getProductPackageInfo]`);
 const product = (name, price, unit = 'un') => ({ name, price, unit, market: 'Mercado' });
 for (const [name, price, expected, basis] of [
+  ['Creme Dental Colgate Total 12 C/3 90g', 23.97, 7.99, 'count'],
+  ['Creme Dental Colgate Total 12 90g', 7.99, 7.99, 'count'],
+  ['Pasta de dentes 3x90g', 23.97, 7.99, 'count'],
+  ['Sabonete Dove C/6 Unidades 90g', 23.94, 3.99, 'count'],
   ['Sabonete em Barra Protex Pack com 8x85g', 19.90, 19.90 / 8, 'count'],
   ['Sabonete Protex 8 × 85g leve 8 pague 6', 19.90, 19.90 / 8, 'count'],
   ['Sabonete Protex 85g pack com 8 unidades', 19.90, 19.90 / 8, 'count'],

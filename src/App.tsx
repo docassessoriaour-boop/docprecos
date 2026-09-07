@@ -194,13 +194,26 @@ const formatProductInsertionDateTime = (value?: string) => {
   })}`;
 };
 
+// Repair this historical extraction against the matching WhatsApp catalog
+// entries (same product, market and validity: pack 23.94, each bar 3.99).
+// Do not extrapolate the correction to other promotions or prices.
+const correctKnownOfferPrice = (product: Product): Product => {
+  const name = normalizeDuplicateKeyText(product.name);
+  if (name === normalizeDuplicateKeyText('Sabonete Dove C/6 Unidades 90g') &&
+    normalizeMarketName(product.market) === 'Amigão' && product.city === 'Ourinhos' &&
+    product.endDate === '2026-09-09' && Math.abs(product.price - 3.99) < 0.001) {
+    return { ...product, price: 23.94 };
+  }
+  return product;
+};
+
 const removeExpiredProducts = (products: Product[]) =>
   removeDuplicateProducts(
     products
       .map(product => {
         const isUnverifiedWhatsAppOffer = product.source?.toLowerCase().includes('whatsapp') && product.validityVerified !== true;
         const normalizedProduct = normalizeOfferDateRange({
-          ...product,
+          ...correctKnownOfferPrice(product),
           market: normalizeMarketName(product.market),
           startDate: isUnverifiedWhatsAppOffer ? undefined : product.startDate,
           endDate: isUnverifiedWhatsAppOffer ? undefined : product.endDate
@@ -1239,7 +1252,7 @@ const getPackageValuePrice = (price: number, packageInfo: ProductPackageInfo) =>
 // basis is independent: a bar of soap is compared per bar, not per kilogram.
 const getProductComparisonPackage = (product: Product): ProductPackageInfo | null => {
   const text = normalizePackageText(`${product.name} ${product.unit}`);
-  const countedProduct = /\b(sabonete|fralda|fraldas|absorvente|absorventes|esponja|esponjas|escova dental|escova de dentes|papel higienico|papel toalha|ovo|ovos)\b/.test(text)
+  const countedProduct = /\b(creme dental|pasta dental|pasta de dentes|sabonete|fralda|fraldas|absorvente|absorventes|esponja|esponjas|escova dental|escova de dentes|papel higienico|papel toalha|ovo|ovos)\b/.test(text)
     || /\bsabao\b.*\b(barra|pedra|pedaco)\b/.test(text);
   // Liquid soap is still compared by volume.
   if (!countedProduct || /\bsabonete\b.*\b(liquido|ml|litro)\b/.test(text) || /\bsabonete\b.*\d\s*(ml|l)\b/.test(text)) {

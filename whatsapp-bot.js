@@ -893,7 +893,10 @@ async function extractOffersFromMedia(media, fallbackMarket, sourceLabel) {
     Retorne datas somente quando estiverem explicitamente visíveis e legíveis. Nunca estime ou invente uma validade.
     Se houver data de validade, retorne em AAAA-MM-DD. Se houver apenas dia e mês, use o ano atual ${new Date().getFullYear()}; se a faixa atravessar dezembro/janeiro, o fim pertence ao ano seguinte.
     No campo "validityEvidence", copie exatamente o pequeno trecho visível que comprova a validade (por exemplo, "Ofertas válidas até 16/08"). Se não houver esse texto na imagem, deixe startDate, endDate e validityEvidence vazios.
-    Se houver mais de um preço para o mesmo item, use o preço principal destacado na oferta.
+    Diferencie preço total da embalagem de preço por unidade ilustrativo. O campo price deve corresponder à embalagem inteira descrita no name/unit, nunca ao valor unitário dividido novamente pelo conteúdo.
+    Preserve contagem e peso por unidade: "C/6 Unidades 90g", "C/3 90g", "8x85g". "Leve 8 pague 6" contém 8 unidades.
+    Exemplo: pack de 6 sabonetes com total R$23,94 e indicação R$3,99 cada deve retornar price 23.94, unit "6un 90g". Creme dental C/3 90g por R$23,97 deve retornar price 23.97, unit "3un 90g".
+    Se só o preço por unidade estiver visível e a compra exigir o pacote completo com contagem explícita, calcule o total multiplicando uma única vez. Se não for possível determinar a base do preço com confiança, não inclua essa oferta. Nunca escolha apenas o menor preço ou o maior destaque visual.
     Se a marca estiver no nome, mantenha no campo "name". Se não souber a unidade, use "un".
     Nao retorne lista vazia quando houver qualquer produto com preço visível.
 
