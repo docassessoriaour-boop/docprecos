@@ -185,6 +185,29 @@ const getProductInsertionDateTime = (product: Product) => {
   return Number.isNaN(importedAt.getTime()) ? undefined : importedAt.toISOString();
 };
 
+// A flyer promotion is normally valid for a few days.  Date ranges that are
+// months away from the moment a WhatsApp flyer was received are almost always
+// caused by reading DD/MM as MM/DD (for example, 03/09 to 06/09 becoming
+// 03/03 to 06/12).  Do not keep those offers active until a fictitious date.
+const hasPlausibleWhatsAppValidity = (product: Product, startDate?: string, endDate?: string) => {
+  if (!product.source?.toLowerCase().includes('whatsapp') || (!startDate && !endDate)) return true;
+
+  const insertedAt = getProductInsertionDateTime(product);
+  if (!insertedAt) return true;
+
+  const receivedDate = new Date(insertedAt);
+  if (Number.isNaN(receivedDate.getTime())) return true;
+  receivedDate.setHours(0, 0, 0, 0);
+
+  const start = parseOfferDate(startDate);
+  const end = parseOfferDate(endDate);
+  const daysFromReceipt = (date: Date) => Math.round((date.getTime() - receivedDate.getTime()) / MS_PER_DAY);
+
+  // Allows a flyer received a little late and longer monthly campaigns, while
+  // rejecting the clearly swapped day/month ranges found in imported files.
+  return (!start || daysFromReceipt(start) >= -7) && (!end || (daysFromReceipt(end) >= -7 && daysFromReceipt(end) <= 45));
+};
+
 const formatProductInsertionDateTime = (value?: string) => {
   if (!value) return 'Data de inserção não disponível';
   const insertedAt = new Date(value);
@@ -236,13 +259,16 @@ const removeExpiredProducts = (products: Product[]) =>
           startDate: isUnverifiedWhatsAppOffer ? undefined : product.startDate,
           endDate: isUnverifiedWhatsAppOffer ? undefined : product.endDate
         });
-        const launchDate = getProductLaunchDate({ ...product, startDate: normalizedProduct.startDate });
+        const validDates = hasPlausibleWhatsAppValidity(product, normalizedProduct.startDate, normalizedProduct.endDate);
+        const startDate = validDates ? normalizedProduct.startDate : undefined;
+        const endDate = validDates ? normalizedProduct.endDate : undefined;
+        const launchDate = getProductLaunchDate({ ...product, startDate });
 
         return {
           ...normalizedProduct,
           insertedAt: getProductInsertionDateTime(product),
-          startDate: normalizedProduct.startDate || launchDate,
-          endDate: normalizedProduct.endDate || launchDate
+          startDate: startDate || launchDate,
+          endDate: endDate || launchDate
         };
       })
       .filter(product => !isOfferExpired(product.endDate))
