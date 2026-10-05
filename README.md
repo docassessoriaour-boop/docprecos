@@ -31,11 +31,14 @@ O projeto inclui um coletor local para baixar e importar promoções recebidas p
 
 No Windows, execute uma vez `CRIAR_ATALHO_WHATSAPP.ps1` para criar na Area de Trabalho o atalho **Radar de Precos - Iniciar WhatsApp**. Ele inicia o coletor local e abre o app publicado em `https://docprecos.vercel.app/`.
 
+No Linux, execute uma vez `./CRIAR_ATALHO_WHATSAPP_LINUX.sh` na pasta do projeto. O atalho **Radar de Preços - Iniciar WhatsApp** será criado na Área de Trabalho. Em algumas distribuições, é preciso clicar com o botão direito no atalho e escolher **Permitir iniciar** na primeira vez.
+
 Tambem existem comandos auxiliares na raiz do projeto:
 
 - `INICIAR_APP_E_BOT.cmd`: abre o app, inicia o coletor automatico e abre o navegador.
 - `GERAR_QR_CODE_WHATSAPP.cmd`: reinicia a sessao do WhatsApp e mostra um QR Code novo.
 - `CRIAR_ATALHO_WHATSAPP.ps1`: cria o atalho principal na Area de Trabalho.
+- `CRIAR_ATALHO_WHATSAPP_LINUX.sh`: cria o atalho principal na Área de Trabalho no Linux.
 
 O coletor monitora automaticamente ofertas enviadas pelos contatos:
 

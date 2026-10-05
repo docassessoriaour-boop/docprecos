@@ -1544,6 +1544,91 @@ export default function App({ userEmail, isAdmin, onOpenUserAdmin, onSignOut }: 
     }
   });
 
+  const sharedStateSnapshot = useRef('');
+
+  // Mantém listas, seleções e preferências iguais no Firefox e no Chrome.
+  // O localStorage continua sendo a cópia de segurança quando o coletor fecha.
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadSharedState = async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/app-state');
+        if (!response.ok) return;
+        const state = await response.json() as {
+          shoppingList?: ShoppingItem[];
+          selectedOfferIds?: Record<string, string>;
+          clientPreLists?: ClientPreList[];
+          specialMarkets?: string[];
+        };
+        if (cancelled) return;
+
+        const hasSharedData = Array.isArray(state.shoppingList)
+          || Boolean(state.selectedOfferIds && typeof state.selectedOfferIds === 'object')
+          || Array.isArray(state.clientPreLists)
+          || Array.isArray(state.specialMarkets);
+        if (!hasSharedData) {
+          const initialState = { shoppingList, selectedOfferIds, clientPreLists, specialMarkets };
+          const serializedInitialState = JSON.stringify(initialState);
+          const saveResponse = await fetch('http://localhost:3001/api/app-state', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: serializedInitialState
+          });
+          if (saveResponse.ok && !cancelled) sharedStateSnapshot.current = serializedInitialState;
+          return;
+        }
+
+        const nextShoppingList = Array.isArray(state.shoppingList) ? state.shoppingList : shoppingList;
+        const nextSelectedOfferIds = state.selectedOfferIds && typeof state.selectedOfferIds === 'object'
+          ? state.selectedOfferIds
+          : selectedOfferIds;
+        const nextClientPreLists = Array.isArray(state.clientPreLists) ? state.clientPreLists : clientPreLists;
+        const nextSpecialMarkets = Array.isArray(state.specialMarkets) ? state.specialMarkets : specialMarkets;
+        sharedStateSnapshot.current = JSON.stringify({
+          shoppingList: nextShoppingList,
+          selectedOfferIds: nextSelectedOfferIds,
+          clientPreLists: nextClientPreLists,
+          specialMarkets: nextSpecialMarkets
+        });
+        setShoppingList(nextShoppingList);
+        setSelectedOfferIds(nextSelectedOfferIds);
+        setClientPreLists(nextClientPreLists);
+        setSpecialMarkets(nextSpecialMarkets);
+      } catch {
+        // Sem o coletor, o app segue com a cópia salva neste navegador.
+      }
+    };
+
+    loadSharedState();
+    const interval = window.setInterval(loadSharedState, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
+
+  useEffect(() => {
+    const state = { shoppingList, selectedOfferIds, clientPreLists, specialMarkets };
+    const serializedState = JSON.stringify(state);
+    if (!sharedStateSnapshot.current || serializedState === sharedStateSnapshot.current) return;
+
+    const timeout = window.setTimeout(async () => {
+      try {
+        const response = await fetch('http://localhost:3001/api/app-state', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: serializedState
+        });
+        if (response.ok) sharedStateSnapshot.current = serializedState;
+      } catch {
+        // A alteração já foi preservada no localStorage pelos efeitos abaixo.
+      }
+    }, 300);
+
+    return () => window.clearTimeout(timeout);
+  }, [shoppingList, selectedOfferIds, clientPreLists, specialMarkets]);
+
   // Cache the synchronized catalog so it remains available if the local
   // WhatsApp collector is temporarily offline. The collector reconciles all
   // browsers with its persistent shared catalog whenever it is available.

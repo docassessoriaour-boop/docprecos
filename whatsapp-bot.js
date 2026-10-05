@@ -130,6 +130,7 @@ const offersInboxFolder = path.resolve(process.env.OFFERS_INBOX || 'ENTRADA_OFER
 const processedFilesPath = path.resolve('.processed-offer-files.json');
 const pendingOfferFilesPath = path.resolve('.pending-offer-files.json');
 const sharedCatalogPath = path.resolve('outputs/shared-whatsapp-catalog.json');
+const sharedAppStatePath = path.resolve('outputs/shared-app-state.json');
 const receivedWhatsAppFolder = path.join(offersInboxFolder, 'WhatsApp');
 const ownerWhatsAppNumber = '14988359798';
 const monitoredMarkets = [
@@ -202,6 +203,25 @@ function addOffersToSharedCatalog(offers) {
 let importedOffers = loadSharedCatalog();
 let offersAwaitingConfirmation = 0;
 let pendingShoppingItems = [];
+
+function loadSharedAppState() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(sharedAppStatePath, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    if (error?.code !== 'ENOENT') console.error('Nao foi possivel ler o estado compartilhado do app:', error);
+    return {};
+  }
+}
+
+function saveSharedAppState(state) {
+  fs.mkdirSync(path.dirname(sharedAppStatePath), { recursive: true });
+  const temporaryPath = `${sharedAppStatePath}.tmp`;
+  fs.writeFileSync(temporaryPath, JSON.stringify(state, null, 2), 'utf8');
+  fs.renameSync(temporaryPath, sharedAppStatePath);
+}
+
+let sharedAppState = loadSharedAppState();
 let pendingOfferFiles = loadPendingOfferFiles();
 let processedFileKeys = new Set();
 let processedMessageIds = new Set();
@@ -1051,6 +1071,28 @@ app.get('/api/whatsapp-imports', (req, res) => {
   });
 });
 
+// Estado de trabalho comum ao Firefox e ao Chrome deste computador.
+app.get('/api/app-state', (req, res) => {
+  res.json(sharedAppState);
+});
+
+app.put('/api/app-state', (req, res) => {
+  const nextState = req.body;
+  if (!nextState || typeof nextState !== 'object' || Array.isArray(nextState)) {
+    return res.status(400).json({ error: 'Estado invalido.' });
+  }
+
+  const allowedKeys = ['shoppingList', 'selectedOfferIds', 'clientPreLists', 'specialMarkets'];
+  const sanitizedState = Object.fromEntries(
+    allowedKeys
+      .filter(key => Object.prototype.hasOwnProperty.call(nextState, key))
+      .map(key => [key, nextState[key]])
+  );
+  sharedAppState = { ...sanitizedState, updatedAt: new Date().toISOString() };
+  saveSharedAppState(sharedAppState);
+  return res.json(sharedAppState);
+});
+
 app.get('/api/whatsapp-config', (req, res) => {
   res.json({
     ownerWhatsAppNumber,
@@ -1356,6 +1398,25 @@ function buildClientOptions() {
       args: ['--no-sandbox', '--disable-setuid-sandbox']
     }
   };
+
+  // No Linux, aproveita o Chrome instalado no sistema. Sem este caminho o
+  // Puppeteer tenta usar um navegador próprio que nem sempre foi baixado.
+  if (process.platform === 'linux') {
+    const chromePath = [
+      process.env.CHROME_PATH,
+      '/usr/bin/google-chrome',
+      '/usr/bin/google-chrome-stable',
+      '/usr/bin/chromium',
+      '/usr/bin/chromium-browser'
+    ].find(candidate => candidate && fs.existsSync(candidate));
+
+    if (chromePath) {
+      options.puppeteer.executablePath = chromePath;
+      console.log(`Usando navegador do sistema: ${chromePath}`);
+    } else {
+      console.warn('Nenhum Chrome/Chromium do sistema foi encontrado. O Puppeteer tentará usar seu navegador próprio.');
+    }
+  }
 
   if (whatsappWebVersion) {
     options.webVersion = whatsappWebVersion;
