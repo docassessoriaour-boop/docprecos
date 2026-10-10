@@ -27,7 +27,8 @@ O projeto inclui um coletor local para baixar e importar promoções recebidas p
 1. Crie o arquivo `.env` com `GEMINI_API_KEY=sua_chave`.
 2. Inicie o app com `npm run dev`.
 3. Em outro terminal, inicie o coletor com `npm run bot`.
-4. Escaneie o QR Code com o WhatsApp do número `14988359798`.
+4. Configure `OWNER_WHATSAPP_NUMBER` no arquivo privado `.env.local`, somente com
+   os números incluindo DDD, e escaneie o QR Code do WhatsApp correspondente.
 
 No Windows, execute uma vez `CRIAR_ATALHO_WHATSAPP.ps1` para criar na Area de Trabalho o atalho **Radar de Precos - Iniciar WhatsApp**. Ele inicia o coletor local e abre o app publicado em `https://docprecos.vercel.app/`.
 
@@ -48,6 +49,18 @@ O coletor monitora automaticamente ofertas enviadas pelos contatos:
 - SAO JUDAS: `11956397896` / `14996695703`
 - ATACADAO: `14997445160`
 - BOM JESUS: `14997782966`
+
+### Relatórios automáticos
+
+Enquanto o coletor estiver ligado e conectado ao WhatsApp, ele gera o relatório
+**Melhores preços por mercado** usando a lista de compras salva e envia o PDF
+para o número privado configurado em `OWNER_WHATSAPP_NUMBER` diariamente às
+**09:00**, **15:00** e **18:00**, no fuso
+`America/Sao_Paulo`.
+
+Para testar imediatamente, com o coletor em execução, envie uma requisição
+`POST` para `http://localhost:3001/api/reports/send-now`. Os PDFs gerados e o
+histórico que impede envios duplicados ficam em `outputs/relatorios-automaticos`.
 
 Quando algum desses contatos enviar PDF ou imagem de promoção, o coletor salva o arquivo em `ENTRADA_OFERTAS\WhatsApp`, extrai os produtos com IA e envia as ofertas para a tela "Importar Ofertas" do Radar de Preços.
 

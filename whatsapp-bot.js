@@ -1,4 +1,9 @@
 import { readCustomerPrices, CUSTOMER_PRICING_INSTRUCTIONS } from './src/utils/customerPricing.mjs';
+import {
+  buildAutomatedMarketReport,
+  renderAutomatedMarketReportHtml,
+  saveReportPdf
+} from './src/utils/automatedMarketReport.mjs';
 /**
  * Radar de Preços - WhatsApp Bot (Local Integration)
  * 
@@ -21,7 +26,7 @@ import { readCustomerPrices, CUSTOMER_PRICING_INSTRUCTIONS } from './src/utils/c
 import express from 'express';
 import cors from 'cors';
 import pkg from 'whatsapp-web.js';
-const { Client, LocalAuth, Message } = pkg;
+const { Client, LocalAuth, Message, MessageMedia } = pkg;
 import qrcode from 'qrcode-terminal';
 import { GoogleGenerativeAI } from '@google/generative-ai';
 import dotenv from 'dotenv';
@@ -30,7 +35,7 @@ import path from 'node:path';
 import { inspect } from 'node:util';
 import { createDecipheriv, createHash, createHmac, hkdfSync, timingSafeEqual } from 'node:crypto';
 
-dotenv.config();
+dotenv.config({ path: ['.env.local', '.env'] });
 
 const botLogFile = path.resolve(process.env.WHATSAPP_BOT_LOG || 'outputs/whatsapp-bot.log');
 const botLogMaxBytes = 5 * 1024 * 1024;
@@ -131,8 +136,11 @@ const processedFilesPath = path.resolve('.processed-offer-files.json');
 const pendingOfferFilesPath = path.resolve('.pending-offer-files.json');
 const sharedCatalogPath = path.resolve('outputs/shared-whatsapp-catalog.json');
 const sharedAppStatePath = path.resolve('outputs/shared-app-state.json');
+const defaultCatalogPath = path.resolve('src/data/defaultProducts.json');
+const scheduledReportsFolder = path.resolve('outputs/relatorios-automaticos');
+const scheduledReportLedgerPath = path.join(scheduledReportsFolder, 'envios.json');
 const receivedWhatsAppFolder = path.join(offersInboxFolder, 'WhatsApp');
-const ownerWhatsAppNumber = '14988359798';
+const ownerWhatsAppNumber = process.env.OWNER_WHATSAPP_NUMBER || '';
 const monitoredMarkets = [
   { market: 'AMIGAO', phones: ['14996230389', '14920059637'] },
   { market: 'SAGRADA FAMILIA', phones: ['14998290971', '14996633969', '14996311107'] },
@@ -249,6 +257,107 @@ let isWhatsAppReady = false;
 let apiServer;
 let isStartingApiServer = false;
 let isShuttingDown = false;
+let scheduledReportTimer;
+let isSendingScheduledReport = false;
+
+const REPORT_TIME_ZONE = 'America/Sao_Paulo';
+const REPORT_SCHEDULE = new Set(['09:00', '15:00', '18:00']);
+
+function getBrazilDateParts(date = new Date()) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: REPORT_TIME_ZONE,
+    year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  const get = type => parts.find(part => part.type === type)?.value || '';
+  return { date: `${get('year')}-${get('month')}-${get('day')}`, time: `${get('hour')}:${get('minute')}` };
+}
+
+function loadReportLedger() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(scheduledReportLedgerPath, 'utf8'));
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (error) {
+    if (error?.code !== 'ENOENT') console.error('Nao foi possivel ler o historico dos relatorios:', error);
+    return {};
+  }
+}
+
+function saveReportLedger(ledger) {
+  fs.mkdirSync(scheduledReportsFolder, { recursive: true });
+  fs.writeFileSync(scheduledReportLedgerPath, JSON.stringify(ledger, null, 2), 'utf8');
+}
+
+function loadDefaultCatalog() {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(defaultCatalogPath, 'utf8'));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (error) {
+    console.error('Nao foi possivel ler o catalogo publicado para o relatorio:', error);
+    return [];
+  }
+}
+
+async function sendAutomatedMarketReport(reason = 'agendado') {
+  if (isSendingScheduledReport) throw new Error('Ja existe um relatorio sendo gerado.');
+  if (!isWhatsAppReady || !client?.pupBrowser) throw new Error('WhatsApp ainda nao esta conectado.');
+  if (!ownerWhatsAppNumber) throw new Error('OWNER_WHATSAPP_NUMBER nao foi configurado no arquivo .env.local.');
+  const shoppingList = Array.isArray(sharedAppState.shoppingList) ? sharedAppState.shoppingList : [];
+  if (shoppingList.length === 0) throw new Error('A lista de compras salva esta vazia.');
+
+  isSendingScheduledReport = true;
+  try {
+    const productsById = new Map();
+    for (const product of [...loadDefaultCatalog(), ...importedOffers]) {
+      if (product?.id) productsById.set(product.id, product);
+    }
+    const now = new Date();
+    const report = buildAutomatedMarketReport({
+      products: [...productsById.values()],
+      shoppingList,
+      specialMarkets: Array.isArray(sharedAppState.specialMarkets) ? sharedAppState.specialMarkets : [],
+      city: 'Ourinhos',
+      now
+    });
+    const { date, time } = getBrazilDateParts(now);
+    const safeTime = time.replace(':', 'h');
+    const pdfPath = path.join(scheduledReportsFolder, `melhores-precos-${date}-${safeTime}.pdf`);
+    await saveReportPdf(client.pupBrowser, renderAutomatedMarketReportHtml(report), pdfPath);
+
+    const recipient = `${normalizePhoneNumber(ownerWhatsAppNumber)}@c.us`;
+    const caption = `📊 *Melhores preços por mercado*\n${date.split('-').reverse().join('/')} às ${time}\n${report.foundCount} item(ns) encontrado(s) · Total otimizado: R$ ${report.total.toFixed(2).replace('.', ',')}\n_Geração ${reason} pelo Radar de Preços._`;
+    await client.sendMessage(recipient, MessageMedia.fromFilePath(pdfPath), { caption, sendMediaAsDocument: true });
+    console.log(`Relatorio automatico enviado para ${ownerWhatsAppNumber}: ${pdfPath}`);
+    return { pdfPath, report };
+  } finally {
+    isSendingScheduledReport = false;
+  }
+}
+
+async function checkScheduledMarketReport() {
+  const slot = getBrazilDateParts();
+  if (!REPORT_SCHEDULE.has(slot.time)) return;
+  const key = `${slot.date}T${slot.time}`;
+  const ledger = loadReportLedger();
+  if (ledger[key]) return;
+  try {
+    await sendAutomatedMarketReport('automática');
+    ledger[key] = new Date().toISOString();
+    for (const oldKey of Object.keys(ledger)) {
+      if (oldKey < `${slot.date.slice(0, 8)}01`) delete ledger[oldKey];
+    }
+    saveReportLedger(ledger);
+  } catch (error) {
+    console.error(`Falha no relatorio automatico de ${slot.time}:`, error?.message || error);
+  }
+}
+
+function startScheduledMarketReports() {
+  if (scheduledReportTimer) return;
+  console.log('Relatorios automaticos configurados para 09:00, 15:00 e 18:00 (America/Sao_Paulo).');
+  checkScheduledMarketReport();
+  scheduledReportTimer = setInterval(checkScheduledMarketReport, 20000);
+}
 
 function normalizePhoneNumber(value) {
   const digits = String(value || '').replace(/\D/g, '');
@@ -1117,6 +1226,22 @@ app.get('/api/whatsapp-sync-status', (req, res) => {
   });
 });
 
+// Permite testar o relatorio sem aguardar um dos tres horarios agendados.
+app.post('/api/reports/send-now', async (req, res) => {
+  try {
+    const result = await sendAutomatedMarketReport('manual');
+    return res.json({
+      success: true,
+      file: path.basename(result.pdfPath),
+      foundItems: result.report.foundCount,
+      missingItems: result.report.missingCount,
+      total: result.report.total
+    });
+  } catch (error) {
+    return res.status(503).json({ error: error?.message || 'Falha ao gerar o relatorio.' });
+  }
+});
+
 function startWhatsAppHistoryScan() {
   if (!isWhatsAppReady || !client) {
     return { started: false, statusCode: 503, error: 'WhatsApp ainda nao esta conectado.' };
@@ -1542,6 +1667,7 @@ function attachWhatsAppHandlers(nextClient) {
     monitoredMarkets.forEach(({ market, phones }) => {
       console.log(`- ${market}: ${phones.join(' / ')}`);
     });
+    startScheduledMarketReports();
 
     console.log('Iniciando verificacao automatica do historico recente...');
     setTimeout(() => {
@@ -1743,6 +1869,7 @@ async function shutdownBot(exitCode = 0) {
   if (isShuttingDown) return;
   isShuttingDown = true;
   isWhatsAppReady = false;
+  if (scheduledReportTimer) clearInterval(scheduledReportTimer);
   console.log('\nEncerrando o coletor do WhatsApp com seguranca...');
 
   try {
