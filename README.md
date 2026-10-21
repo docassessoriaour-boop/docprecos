@@ -32,7 +32,7 @@ O projeto inclui um coletor local para baixar e importar promoções recebidas p
 
 No Windows, execute uma vez `CRIAR_ATALHO_WHATSAPP.ps1` para criar na Area de Trabalho o atalho **Radar de Precos - Iniciar WhatsApp**. Ele inicia o coletor local e abre o app publicado em `https://docprecos.vercel.app/`.
 
-No Linux, execute uma vez `./CRIAR_ATALHO_WHATSAPP_LINUX.sh` na pasta do projeto. O atalho **Radar de Preços - Iniciar WhatsApp** será criado na Área de Trabalho. Em algumas distribuições, é preciso clicar com o botão direito no atalho e escolher **Permitir iniciar** na primeira vez.
+No Linux, execute uma vez `./CRIAR_ATALHO_WHATSAPP_LINUX.sh` na pasta do projeto. O atalho **Radar de Preços - Iniciar WhatsApp** será criado na Área de Trabalho. O iniciador usa o Node.js instalado no sistema, no NVM/Volta ou no runtime local do Codex, sem depender do npm. Em algumas distribuições, é preciso clicar com o botão direito no atalho e escolher **Permitir iniciar** na primeira vez.
 
 Tambem existem comandos auxiliares na raiz do projeto:
 
